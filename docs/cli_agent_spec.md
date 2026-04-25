@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the remaining work required to make `scripts.llm_assist` functionally
+Define the remaining work required to make `yuj` / `scripts.llm_assist` functionally
 competitive with a terminal coding agent such as Claude Code or Codex CLI,
 using the existing harness engine and only minimal additions.
 
@@ -39,6 +39,7 @@ Already implemented:
 - `approve`
 - `sessions`
 - `show`
+- `yuj` operator-facing wrapper
 - `inspect knobs`
 - `inspect presets`
 - `smoke`
@@ -46,7 +47,10 @@ Already implemented:
 - turn renderer from `.trace.jsonl`
 - assistant-only approval/suspend
 - smoke bootstrap repo
-- exact served model id resolution for `smoke`
+- exact served model id resolution for `run` and `smoke`
+- positional task text with current-cwd default for `code` / `run`
+- latest-session defaults for `show` / `resume` / `approve`
+- startup banner before live trace output
 
 Already good enough:
 
@@ -71,9 +75,10 @@ The CLI is at the target level when all of the following are true:
 7. The default CLI ergonomics are good enough that a normal user does not need
    to read code or inspect `.trace.jsonl` manually.
 
-## Missing Functional Pieces
+## Acceptance Record
 
-Only the items below are in scope for this spec.
+The items below were the targeted gaps for this shell and now serve as the
+acceptance record for what has been implemented.
 
 ### 1. Exact Served Model Resolution For `run`
 
@@ -86,7 +91,7 @@ Problem:
 
 Required behavior:
 
-- `llm_assist run` must resolve the exact served model id before creating the session.
+- `yuj run` must resolve the exact served model id before creating the session.
 - If `--model` is omitted:
   - start from the configured default model
   - query `/v1/models`
@@ -219,8 +224,8 @@ Problem:
 Required behavior:
 
 - Add one shorthand entry path:
-  - `python3 -m scripts.llm_assist code --cwd <path> --prompt-text ...`
-  - or `python3 -m scripts.llm_assist task --cwd <path> --prompt-text ...`
+  - `yuj code "..."` from the current repo
+  - or `yuj run --cwd <path> --prompt-text ...`
 - This may be an alias to `run`.
 - Do not remove `run`.
 - Do not invent shell-like slash commands.
@@ -354,7 +359,7 @@ Assumes localhost server is up.
      - `resume` executes the delete
 
 3. Smoke task
-   - `python3 -m scripts.llm_assist smoke`
+   - `yuj smoke`
    - Expected:
      - non-zero on real failure
      - zero only when repo fix and test success are both true

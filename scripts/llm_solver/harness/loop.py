@@ -1033,8 +1033,8 @@ class Session:
                     approval_text = (
                         "APPROVAL REQUIRED: This tool call was not executed. "
                         f"Reason: {approval_reason}. "
-                        "Review it with `llm_assist show` and approve it with "
-                        "`llm_assist approve <session_id>`, then resume the session."
+                        "Review it with `yuj show` and approve it with "
+                        "`yuj approve <session_id>`, then resume the session."
                     )
                     self.context.add_tool_result(
                         tc.id,

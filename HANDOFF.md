@@ -35,38 +35,49 @@ Primary constraints:
 
 Assistant shell commands currently implemented:
 
-- `python3 -m scripts.llm_assist run --cwd ... --prompt-text ...`
-- `python3 -m scripts.llm_assist code --cwd ... --prompt-text ...` (alias of `run`)
-- `python3 -m scripts.llm_assist smoke`
-- `python3 -m scripts.llm_assist resume <session_id>`
-- `python3 -m scripts.llm_assist approve <session_id>`
-- `python3 -m scripts.llm_assist sessions`
-- `python3 -m scripts.llm_assist show <session_id>`
-- `python3 -m scripts.llm_assist inspect knobs [query]`
-- `python3 -m scripts.llm_assist inspect presets`
+- `yuj code "..."` (primary coding-agent entry path; current cwd default)
+- `yuj run --cwd ... --prompt-file ...`
+- `yuj smoke`
+- `yuj resume [session_id]`
+- `yuj approve [session_id]`
+- `yuj sessions`
+- `yuj show [session_id]`
+- `yuj inspect knobs [query]`
+- `yuj inspect presets`
+
+Equivalent repo-local entrypoints:
+
+- `./yuj ...`
+- `python3 -m scripts.yuj ...`
 
 ## Verified Working
 
 - `python3 -m scripts.llm_solver --help`
-- `python3 -m scripts.llm_assist --help`
-- `python3 -m scripts.llm_assist inspect presets`
-- `python3 -m scripts.llm_assist inspect knobs runtime`
-- `python3 -m scripts.llm_assist show --help`
-- `python3 -m scripts.llm_assist approve --help`
-- `python3 -m scripts.llm_assist smoke --help`
+- `yuj --help`
+- `yuj inspect presets`
+- `yuj inspect knobs runtime`
+- `yuj show --help`
+- `yuj approve --help`
+- `yuj smoke --help`
 - assistant session store + resume metadata
 - assistant artifact isolation under `.llm_assist/`-style storage
 - assistant session detail + trace-tail inspection
-- compact turn renderer in `llm_assist show`
+- compact turn renderer in `yuj show`
 - assistant-only approval/suspend for risky bash actions (now includes
   `mv`/`cp` when any positional path resolves outside the repo root)
 - `run` and `smoke` both resolve the exact served model id via
   `resolve_served_model` and persist it in session metadata
 - incremental progress rendering during `run` and `resume` via a
   background trace follower (`scripts/llm_assist/progress.py`)
+- startup banner before live trace output with session id, cwd, model, and
+  artifact path
 - `show` derives live status from `.trace.jsonl` + `approval_request.json`
   (approval_pending / running / completed / paused / error) instead of
   trusting the SQLite row blindly
+- `show`, `resume`, and `approve` accept no session id and default to the
+  latest relevant session, preferring the current repo cwd
+- `code`/`run` accept positional task text and default `--cwd` to the current
+  directory for the common path
 - `smoke` acceptance checks: `calc.py` contains the fix, `tests/test_calc.py`
   passes, and no pending approval is outstanding; failure prints the repo
   path, session id, artifact dir, final status, and finish reason
@@ -112,26 +123,26 @@ Recent important fixes already present here:
 ## Ready-Now Workflow
 
 1. Verify the CLI surface:
-   `python3 -m scripts.llm_assist --help`
+   `yuj --help`
 
 2. Inspect available knobs/presets:
-   `python3 -m scripts.llm_assist inspect presets`
-   `python3 -m scripts.llm_assist inspect knobs runtime`
+   `yuj inspect presets`
+   `yuj inspect knobs runtime`
 
 3. Run the built-in smoke task if the local server is up:
-   `python3 -m scripts.llm_assist smoke`
+   `yuj smoke`
 
 4. Start a real repo session:
-   `python3 -m scripts.llm_assist run --cwd <repo> --prompt-text "..."`
+   `cd <repo> && yuj code "..."`
    If alias resolution is ambiguous, pass the exact served model id.
 
 5. Inspect or resume sessions:
-   `python3 -m scripts.llm_assist sessions`
-   `python3 -m scripts.llm_assist show <session_id>`
-   `python3 -m scripts.llm_assist resume <session_id>`
+   `yuj sessions`
+   `yuj show`
+   `yuj resume`
 
 6. If a risky action is paused for approval:
-   `python3 -m scripts.llm_assist approve <session_id>`
+   `yuj approve`
    then resume the session.
 
 ## Useful Commands
@@ -140,10 +151,10 @@ Recent important fixes already present here:
 cd /home/syd/projects/harness-public-staging
 
 python3 -m scripts.llm_solver --help
-python3 -m scripts.llm_assist --help
-python3 -m scripts.llm_assist inspect presets
-python3 -m scripts.llm_assist inspect knobs runtime
-python3 -m scripts.llm_assist smoke
+yuj --help
+yuj inspect presets
+yuj inspect knobs runtime
+yuj smoke
 
 python3 -m pytest tests/ -q -p no:cacheprovider
 python3 -m pytest tests/test_harness_and_pipeline.py -q -p no:cacheprovider
@@ -161,14 +172,14 @@ curl -sS http://localhost:8080/v1/chat/completions \
 Built-in assistant smoke:
 
 ```bash
-python3 -m scripts.llm_assist smoke
-HARNESS_ASSIST_HOME=/tmp/harness-assist-smoke python3 -m scripts.llm_assist smoke
+yuj smoke
+HARNESS_ASSIST_HOME=/tmp/harness-assist-smoke yuj smoke
 ```
 
 Direct exact-model run:
 
 ```bash
-python3 -m scripts.llm_assist run \
+yuj run \
   --cwd /path/to/repo \
   --model Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf \
   --prompt-text "Fix the failing test, run the relevant test, then finish."

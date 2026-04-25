@@ -1,4 +1,4 @@
-"""Assistant CLI entrypoint — python -m scripts.llm_assist <command>."""
+"""Assistant CLI entrypoint for the yuj coding shell."""
 from __future__ import annotations
 
 import argparse
@@ -13,6 +13,7 @@ from .runner import (
     derive_live_state,
     load_approval_request,
     prepare_smoke_repo,
+    resolve_served_model,
     resolve_smoke_model,
     run_session,
     save_approval_request,
@@ -22,15 +23,29 @@ from .runner import (
 )
 from .store import SessionStore
 
+CLI_NAME = "yuj"
+_LATEST_SESSION_TOKENS = {"latest", "last"}
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Assistant-mode shell for the local harness"
+        prog=CLI_NAME,
+        description="Assistant-mode coding shell for the local harness",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
     def _attach_run_args(p: argparse.ArgumentParser) -> None:
-        p.add_argument("--cwd", type=Path, required=True, help="working directory to edit")
+        p.add_argument(
+            "task",
+            nargs="*",
+            help="task prompt text; common path if --prompt-text/--prompt-file is omitted",
+        )
+        p.add_argument(
+            "--cwd",
+            type=Path,
+            default=Path.cwd(),
+            help="working directory to edit (default: current directory)",
+        )
         p.add_argument("--prompt-text", help="literal task prompt")
         p.add_argument("--prompt-file", type=Path, help="read task prompt from file")
         p.add_argument("--model", "-m", help="model name or short alias")
@@ -66,11 +81,21 @@ def main(argv: list[str] | None = None) -> int:
     smoke_parser.set_defaults(func=cmd_smoke)
 
     resume_parser = sub.add_parser("resume", help="resume a prior assistant session")
-    resume_parser.add_argument("session_id", help="assistant session id")
+    resume_parser.add_argument(
+        "session_id",
+        nargs="?",
+        default="latest",
+        help="assistant session id or 'latest' (default: latest resumable session)",
+    )
     resume_parser.set_defaults(func=cmd_resume)
 
     approve_parser = sub.add_parser("approve", help="approve a pending assistant action")
-    approve_parser.add_argument("session_id", help="assistant session id")
+    approve_parser.add_argument(
+        "session_id",
+        nargs="?",
+        default="latest",
+        help="assistant session id or 'latest' (default: latest pending approval)",
+    )
     approve_parser.set_defaults(func=cmd_approve)
 
     sessions_parser = sub.add_parser("sessions", help="list known assistant sessions")
@@ -78,7 +103,12 @@ def main(argv: list[str] | None = None) -> int:
     sessions_parser.set_defaults(func=cmd_sessions)
 
     show_parser = sub.add_parser("show", help="inspect one assistant session")
-    show_parser.add_argument("session_id", help="assistant session id")
+    show_parser.add_argument(
+        "session_id",
+        nargs="?",
+        default="latest",
+        help="assistant session id or 'latest' (default: latest session)",
+    )
     show_parser.add_argument("--turns", type=int, default=5,
                              help="number of recent turns to render")
     show_parser.add_argument("--trace-lines", type=int, default=10,
@@ -101,21 +131,24 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def cmd_run(args) -> int:
-    if bool(args.prompt_text) == bool(args.prompt_file):
-        raise SystemExit("exactly one of --prompt-text or --prompt-file is required")
-    prompt_text = args.prompt_file.read_text() if args.prompt_file else args.prompt_text
-    assert prompt_text is not None
+    prompt_text, prompt_source = _resolve_prompt_input(args)
 
     store = SessionStore()
+    model, served = resolve_served_model(args.config, requested_model=args.model)
     record = create_session(
         store,
         cwd=args.cwd.resolve(),
         prompt_text=prompt_text,
-        prompt_source=str(args.prompt_file.resolve()) if args.prompt_file else "inline",
-        model=args.model,
+        prompt_source=prompt_source,
+        model=model,
         config_paths=args.config,
         system_prompt_path=args.system_prompt.resolve() if args.system_prompt else None,
         context_mode=args.context,
+    )
+    _print_session_start(
+        record,
+        action="starting",
+        served_models=served,
     )
     with TraceFollower(record.artifact_path):
         success, finish_reason = run_session(store, record, resume=False)
@@ -143,7 +176,11 @@ def cmd_smoke(args) -> int:
         context_mode=args.context,
     )
     print(f"smoke_repo: {smoke_root}")
-    print(f"served_models: {', '.join(served)}")
+    _print_session_start(
+        record,
+        action="starting smoke session",
+        served_models=served,
+    )
     success, finish_reason = run_session(store, record, resume=False)
     refreshed = store.get_session(record.session_id)
     final_record = refreshed or record
@@ -197,18 +234,17 @@ def _smoke_acceptance_check(smoke_root: Path, record) -> tuple[bool, list[str]]:
 
 def cmd_resume(args) -> int:
     store = SessionStore()
-    record = store.get_session(args.session_id)
-    if record is None:
-        raise SystemExit(f"unknown session: {args.session_id}")
+    record = _resolve_session_record(store, args.session_id, selector="resumable")
     approval = load_approval_request(record.artifact_path)
     if approval is not None and approval.get("status") == "pending":
         raise SystemExit(
             "session has a pending approval request; run "
-            f"python3 -m scripts.llm_assist approve {record.session_id} first"
+            f"{CLI_NAME} approve {record.session_id} first"
         )
     if record.status == "completed":
         _print_session_result(record, True, record.last_finish_reason)
         return 0
+    _print_session_start(record, action="resuming")
     with TraceFollower(record.artifact_path):
         success, finish_reason = run_session(store, record, resume=True)
     refreshed = store.get_session(record.session_id)
@@ -234,25 +270,21 @@ def cmd_sessions(args) -> int:
 
 def cmd_approve(args) -> int:
     store = SessionStore()
-    record = store.get_session(args.session_id)
-    if record is None:
-        raise SystemExit(f"unknown session: {args.session_id}")
+    record = _resolve_session_record(store, args.session_id, selector="pending_approval")
     approval = load_approval_request(record.artifact_path)
-    if approval is None:
+    if approval is None or approval.get("status") != "pending":
         raise SystemExit(f"no pending approval request for session: {record.session_id}")
     approval["status"] = "approved"
     save_approval_request(record.artifact_path, approval)
     print(f"approved: {record.session_id}")
     print(f"request_file: {approval_request_path(record.artifact_path)}")
-    print("resume with: python3 -m scripts.llm_assist resume " + record.session_id)
+    print(f"resume with: {CLI_NAME} resume {record.session_id}")
     return 0
 
 
 def cmd_show(args) -> int:
     store = SessionStore()
-    record = store.get_session(args.session_id)
-    if record is None:
-        raise SystemExit(f"unknown session: {args.session_id}")
+    record = _resolve_session_record(store, args.session_id, selector="latest")
     turns = session_turn_count(record.artifact_path)
     live = derive_live_state(record.artifact_path)
     status = live.status or record.status
@@ -316,6 +348,37 @@ def _run_knob_command(extra_args: list[str]) -> int:
     return subprocess.run(cmd, check=False).returncode
 
 
+def _resolve_prompt_input(args) -> tuple[str, str]:
+    has_prompt_text = args.prompt_text is not None
+    has_prompt_file = args.prompt_file is not None
+    has_task = bool(args.task)
+    provided = int(has_prompt_text) + int(has_prompt_file) + int(has_task)
+    if provided != 1:
+        raise SystemExit(
+            "provide exactly one prompt source: positional task text, --prompt-text, or --prompt-file"
+        )
+    if has_prompt_file:
+        prompt_path = args.prompt_file.resolve()
+        return prompt_path.read_text(), str(prompt_path)
+    if has_prompt_text:
+        return args.prompt_text, "inline"
+    return " ".join(args.task).strip(), "inline-positional"
+
+
+def _print_session_start(
+    record,
+    *,
+    action: str,
+    served_models: list[str] | None = None,
+) -> None:
+    print(f"{action}: {record.session_id}")
+    print(f"cwd: {record.cwd}")
+    print(f"model: {record.model}")
+    print(f"artifacts: {record.artifact_dir}")
+    if served_models is not None:
+        print(f"served_models: {', '.join(served_models)}")
+
+
 def _print_session_result(record, success: bool, finish_reason: str | None) -> None:
     turns = session_turn_count(record.artifact_path)
     print(f"session_id: {record.session_id}")
@@ -327,7 +390,40 @@ def _print_session_result(record, success: bool, finish_reason: str | None) -> N
         print(f"finish_reason: {finish_reason}")
     print(f"turns: {turns}")
     if not success and record.status != "completed":
-        print("resume with: python3 -m scripts.llm_assist resume " + record.session_id)
+        print(f"resume with: {CLI_NAME} resume {record.session_id}")
+
+
+def _resolve_session_record(store: SessionStore, session_ref: str, *, selector: str):
+    if session_ref.lower() not in _LATEST_SESSION_TOKENS:
+        record = store.get_session(session_ref)
+        if record is None:
+            raise SystemExit(f"unknown session: {session_ref}")
+        return record
+
+    current_cwd = str(Path.cwd().resolve())
+    sessions = store.list_sessions(limit=200)
+    if not sessions:
+        raise SystemExit("no assistant sessions found")
+
+    scoped = [record for record in sessions if record.cwd == current_cwd]
+
+    if selector == "resumable":
+        for records in (scoped, sessions):
+            resumable = [record for record in records if record.status != "completed"]
+            if resumable:
+                return resumable[0]
+        raise SystemExit("no resumable assistant session found")
+
+    if selector == "pending_approval":
+        for records in (scoped, sessions):
+            for record in records:
+                approval = load_approval_request(record.artifact_path)
+                if approval is not None and approval.get("status") == "pending":
+                    return record
+        raise SystemExit("no pending approval request found")
+
+    candidates = scoped or sessions
+    return candidates[0]
 
 
 if __name__ == "__main__":

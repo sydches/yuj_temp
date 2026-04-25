@@ -24,6 +24,7 @@ Current status:
 - benchmark shell intentionally left behind
 - assistant shell is usable now under `scripts/llm_assist/`
 - session inspection, approval/suspend, and smoke bootstrap are implemented
+- primary operator entrypoint is `yuj`
 
 This repo is not the old experiment repo with names changed. It is the start of
 the public runtime.
@@ -32,43 +33,60 @@ the public runtime.
 
 ```bash
 python3 -m scripts.llm_solver --help
-python3 -m scripts.llm_assist run --cwd /path/to/repo --prompt-text "Fix the failing test."
-python3 -m scripts.llm_assist code --cwd /path/to/repo --prompt-text "Fix the failing test."
-python3 -m scripts.llm_assist smoke
-python3 -m scripts.llm_assist sessions
-python3 -m scripts.llm_assist show <session_id>
-python3 -m scripts.llm_assist approve <session_id>
-python3 -m scripts.llm_assist resume <session_id>
+yuj --help
+yuj code "Fix the failing test."
+yuj smoke
+yuj sessions
+yuj show
+yuj approve
+yuj resume
 ```
+
+`yuj` is the operator-facing command. The repo also includes `./yuj` and
+`python3 -m scripts.yuj` as equivalent entrypoints if you are running from the
+checkout directly.
 
 `code` is an alias of `run` for the common coding-agent entry path.
 
 ## Practical CLI Flow
 
 ```bash
-python3 -m scripts.llm_assist inspect presets
-python3 -m scripts.llm_assist inspect knobs runtime
+yuj inspect presets
+yuj inspect knobs runtime
 
-python3 -m scripts.llm_assist run \
-  --cwd /path/to/repo \
-  --prompt-text "Fix the failing test, run the relevant test, then finish."
+yuj code "Fix the failing test, run the relevant test, then finish."
+yuj code --cwd /path/to/other/repo "Fix the failing test, run the relevant test, then finish."
+yuj run --prompt-file task.txt
 
-python3 -m scripts.llm_assist sessions
-python3 -m scripts.llm_assist show <session_id>
-python3 -m scripts.llm_assist resume <session_id>
+yuj sessions
+yuj show
+yuj resume
 ```
 
 Assistant artifacts default to `<project>/.llm_assist/`. To keep them elsewhere
 for smoke runs or temporary sessions, set `HARNESS_ASSIST_HOME=/tmp/...`.
 
-`run` now reconciles the requested model against `/v1/models` at session
+Ease-of-use defaults:
+
+- `yuj code "..."` runs against the current directory by default
+- positional prompt text is accepted for the common path; `--prompt-text` and
+  `--prompt-file` still work
+- `yuj show`, `yuj resume`, and `yuj approve` target the latest relevant
+  session by default, preferring the current repo cwd before falling back to
+  the global latest session
+
+`run` and `smoke` reconcile the requested model against `/v1/models` at session
 creation: alias-resolved ids that are not served verbatim fall back to the
-first served id, matching `smoke`. The exact served id is what gets persisted
-in session metadata.
+first served id. The exact served id is what gets persisted in session
+metadata.
 
 While a session is running, `run` and `resume` print incremental progress to
 stdout — session start, tool calls, approval requests, and session end — by
 tailing `.trace.jsonl`. No engine changes are required for this.
+
+Each session now prints an immediate startup banner with the session id, cwd,
+model, artifact path, and served model list before the live trace begins, so
+the operator does not need to wait for completion just to learn what started.
 
 If a risky assistant-mode bash command is blocked, the session pauses with an
 approval request. Assistant-mode classifier coverage: `rm`, `git reset --hard`,
@@ -76,9 +94,12 @@ approval request. Assistant-mode classifier coverage: `rm`, `git reset --hard`,
 positional path resolves outside the repo root. Measurement mode is unaffected.
 
 ```bash
-python3 -m scripts.llm_assist show <session_id>
-python3 -m scripts.llm_assist approve <session_id>
-python3 -m scripts.llm_assist resume <session_id>
+yuj show
+yuj approve
+yuj resume
+yuj show <session_id>
+yuj approve <session_id>
+yuj resume <session_id>
 ```
 
 ## Smoke Test
@@ -91,6 +112,6 @@ is outstanding. Any of those failing produces a non-zero exit with the smoke
 repo path, session id, artifact dir, final status, and finish reason.
 
 ```bash
-python3 -m scripts.llm_assist smoke
-HARNESS_ASSIST_HOME=/tmp/harness-assist-smoke python3 -m scripts.llm_assist smoke
+yuj smoke
+HARNESS_ASSIST_HOME=/tmp/harness-assist-smoke yuj smoke
 ```

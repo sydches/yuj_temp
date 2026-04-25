@@ -86,17 +86,26 @@ They make a product look larger. They do not automatically make the engine bette
 
 ## Required Commands
 
+Human-facing command name:
+
+- `yuj`
+
+Internal module path:
+
+- `scripts.llm_assist/`
+- repo-local wrappers: `./yuj` and `python3 -m scripts.yuj`
+
 Minimum queryable surface:
 
 | Command | Effect |
 |---|---|
-| `llm-assist run --cwd <path> --prompt-text ...` | Start a session |
-| `llm-assist run --cwd <path> --prompt-file <file>` | Start from a prompt file |
-| `llm-assist code --cwd <path> --prompt-text ...` | Alias of `run` for the coding-agent entry path |
-| `llm-assist resume <session_id>` | Resume an existing session |
-| `llm-assist sessions` | List sessions with cwd, model, and latest status |
-| `llm-assist inspect knobs [query]` | Search/describe knobs via `scripts/knob.py` |
-| `llm-assist inspect presets` | Show curated presets |
+| `yuj code "..."` | Start a session in the current directory from positional task text |
+| `yuj run --cwd <path> --prompt-file <file>` | Start from a prompt file |
+| `yuj run --cwd <path> --prompt-text ...` | Explicit flag-based start path |
+| `yuj resume [session_id]` | Resume an existing session; default is latest resumable session |
+| `yuj sessions` | List sessions with cwd, model, and latest status |
+| `yuj inspect knobs [query]` | Search/describe knobs via `scripts/knob.py` |
+| `yuj inspect presets` | Show curated presets |
 
 Everything else is optional.
 
@@ -104,9 +113,9 @@ Implemented and useful in the current staging shell:
 
 | Command | Effect |
 |---|---|
-| `llm-assist show <session_id>` | Show status, paths, recent turns, and trace tail |
-| `llm-assist approve <session_id>` | Approve a pending risky action in assistant mode |
-| `llm-assist smoke` | Bootstrap a throwaway repo, resolve the exact served model id, run one end-to-end assistant session, and assert repo fix + tests pass + no pending approval |
+| `yuj show [session_id]` | Show status, paths, recent turns, and trace tail; default is latest session |
+| `yuj approve [session_id]` | Approve a pending risky action; default is latest pending approval |
+| `yuj smoke` | Bootstrap a throwaway repo, resolve the exact served model id, run one end-to-end assistant session, and assert repo fix + tests pass + no pending approval |
 
 Practical notes:
 
@@ -114,12 +123,19 @@ Practical notes:
   via a shared `resolve_served_model` helper. Alias-resolved ids that are not
   served verbatim fall back to the first served id. The exact served id is
   persisted in session metadata.
+- `code` and `run` accept positional task text and default `--cwd` to the
+  current working directory for the common path.
 - `run` and `resume` print live tool-call progress to stdout while the session
   runs by tailing `.trace.jsonl`. No engine changes are required.
+- `run`, `resume`, and `smoke` print a startup banner with session id, cwd,
+  model, artifact path, and served-model information before the live trace.
 - `show` derives live status from `.trace.jsonl` + `approval_request.json`
   (approval_pending / running / completed / paused / error / fallback) instead
   of trusting the SQLite row blindly, so resumed running sessions do not show
   stale prior finish reasons.
+- `show`, `resume`, and `approve` accept no session id and default to the
+  latest relevant session, preferring the current repo cwd before the global
+  latest session list.
 - Assistant-mode approval classifier covers: `rm`, `git reset --hard`,
   `git clean`, `git checkout --`, `chmod`, `chown`, plus `mv`/`cp` when any
   positional path resolves outside the repo root. Measurement mode is
@@ -178,6 +194,7 @@ Current staging status:
 - `show` exists and renders recent turns plus trace tail.
 - `approve` exists and unblocks assistant-only risky actions after explicit user approval.
 - `smoke` exists and is suitable for local end-to-end checks when the server is up.
+- `yuj` is the intended operator-facing command name.
 
 ## Non-Negotiable Constraints
 

@@ -37,15 +37,14 @@ def create_session(
     cwd: Path,
     prompt_text: str,
     prompt_source: str,
-    model: str | None,
+    model: str,
     config_paths: list[Path],
     system_prompt_path: Path | None,
     context_mode: str,
 ) -> SessionRecord:
-    resolved_model, _served = resolve_served_model(config_paths, requested_model=model)
     record = store.create_session(
         cwd=cwd,
-        model=resolved_model,
+        model=model,
         prompt_text=prompt_text,
         prompt_source=prompt_source,
         context_mode=context_mode,
