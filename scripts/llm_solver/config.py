@@ -685,7 +685,7 @@ def load_config(
                  without pre-baking every combination.
     overrides:   flat dict of CLI flag overrides (highest priority)
     """
-    base = dict(_LAYERED)  # start from already-merged base + local
+    base = _load_layered()  # start from current base + local
 
     if user_config is not None:
         paths: list[Path] = (

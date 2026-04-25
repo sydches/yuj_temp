@@ -54,17 +54,20 @@ Every required key in `config.toml`, grouped by section. All have inline comment
 | `base_url` | str | OpenAI-compatible endpoint URL |
 | `api_key` | str | Authorization header value |
 | `provider` | str | Optional transport selector. Defaults to `openai-compatible`; `anthropic` uses the Anthropic Messages adapter. |
-
-`api_key` may be an environment reference such as `$ENV:OPENAI_API_KEY`.
-Assistant sessions created with `--provider` persist a session-local
-`provider.toml` overlay containing provider/base URL/API-key-env references, not
-literal API keys.
 | `timeout_connect` | int | TCP connection timeout (seconds) |
 | `timeout_read` | int | Chat completion response timeout (seconds) |
 | `health_poll_interval` | int | Seconds between `/health` polls during launch/wait |
 | `health_timeout` | int | Per-attempt socket timeout for `/health` probe |
 | `launch_timeout` | int | Max wait for server to become healthy on launch |
 | `stop_settle` | int | Seconds to wait after killing server processes |
+
+`api_key` may be an environment reference such as `$ENV:OPENAI_API_KEY`.
+Assistant sessions created with `--provider` persist a session-local
+`provider.toml` overlay containing provider/base URL/API-key-env references, not
+literal API keys.
+
+`yuj setup` is the user-facing writer for `config.local.toml`. It can write a
+literal API key for convenience or an env reference for automation.
 
 ### `[model]` — model identity and context budget
 | Key | Type | What it controls |

@@ -55,11 +55,14 @@ Install as a real CLI entrypoint:
 ```bash
 python3 -m pip install -e . --no-build-isolation
 yuj --help
+yuj setup
 ```
 
 ## Practical CLI Flow
 
 ```bash
+yuj setup
+
 yuj inspect presets
 yuj inspect knobs runtime
 
@@ -79,6 +82,18 @@ yuj resume
 
 Assistant artifacts default to `<project>/.llm_assist/`. To keep them elsewhere
 for smoke runs or temporary sessions, set `HARNESS_ASSIST_HOME=/tmp/...`.
+
+First-run setup:
+
+- `yuj setup` prompts for local LLM settings or hosted provider credentials and
+  writes `config.local.toml`
+- interactive `yuj` with no arguments launches setup first if `config.local.toml`
+  is missing
+- the first interactive `yuj code`, `yuj run`, or `yuj smoke` offers setup when
+  no local config exists
+- `config.local.toml` is gitignored and machine-local
+- scriptable setup works with `yuj setup --provider openai --model <id>
+  --api-key-env OPENAI_API_KEY`
 
 Ease-of-use defaults:
 

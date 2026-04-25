@@ -35,6 +35,7 @@ Primary constraints:
 
 Assistant shell commands currently implemented:
 
+- `yuj setup` (interactive or scriptable first-run provider/local config)
 - `yuj code "..."` (primary coding-agent entry path; current cwd default)
 - `yuj code --provider openai --model ... "..."`
 - `yuj code --provider anthropic --model ... "..."`
@@ -103,6 +104,8 @@ Equivalent repo-local entrypoints:
 - provider presets are available for `local`, `openai`, `anthropic`, `zai`,
   `openrouter`, and `custom`; secrets are persisted as env references through
   `--api-key-env`, not copied into session metadata
+- first-run setup writes machine-local `config.local.toml`; interactive
+  `yuj`/`yuj code`/`yuj run`/`yuj smoke` offers setup when that file is absent
 - direct Anthropic uses a small Messages API adapter; OpenAI, Z.ai,
   OpenRouter, local servers, and `custom` use the OpenAI-compatible client path
 - `smoke` acceptance checks: `calc.py` contains the fix, `tests/test_calc.py`

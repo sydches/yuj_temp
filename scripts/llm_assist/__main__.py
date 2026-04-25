@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import getpass
 import os
 import subprocess
 import sys
 from pathlib import Path
 
-from ..llm_solver.config import get_server_base_url
+from ..llm_solver.config import PROJECT_ROOT, get_server_base_url
 from .progress import TraceFollower
 from .runner import (
     approval_request_path,
@@ -55,9 +56,11 @@ _PROVIDER_PRESETS = {
     },
     "custom": {"provider": "openai-compatible"},
 }
+_CONFIG_LOCAL_ENV = "YUJ_CONFIG_LOCAL"
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
     parser = argparse.ArgumentParser(
         prog=CLI_NAME,
         description="Assistant-mode coding shell for the local harness",
@@ -108,6 +111,26 @@ def main(argv: list[str] | None = None) -> int:
         help="start a new assistant coding session (alias of run)",
     )
     _attach_run_args(code_parser)
+
+    setup_parser = sub.add_parser("setup", help="configure yuj for this machine")
+    setup_parser.add_argument(
+        "--provider",
+        choices=sorted(_PROVIDER_PRESETS),
+        help="provider to configure (interactive if omitted)",
+    )
+    setup_parser.add_argument("--model", "-m", help="default model id to persist")
+    setup_parser.add_argument("--base-url", help="API base URL to persist")
+    setup_parser.add_argument("--api-key", help="API key to persist in config.local.toml")
+    setup_parser.add_argument(
+        "--api-key-env",
+        help="persist an env-var reference instead of a literal API key",
+    )
+    setup_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite existing config.local.toml",
+    )
+    setup_parser.set_defaults(func=cmd_setup)
 
     smoke_parser = sub.add_parser("smoke", help="run an end-to-end assistant smoke task")
     smoke_parser.add_argument("--root", type=Path, default=None,
@@ -196,11 +219,25 @@ def main(argv: list[str] | None = None) -> int:
     inspect_preset.add_argument("name")
     inspect_preset.set_defaults(func=cmd_inspect_preset)
 
+    if not argv:
+        if _needs_first_run_setup() and _is_interactive():
+            return cmd_setup(argparse.Namespace(
+                provider=None,
+                model=None,
+                base_url=None,
+                api_key=None,
+                api_key_env=None,
+                force=False,
+            ))
+        parser.print_help()
+        return 0
+
     args = parser.parse_args(argv)
     return args.func(args)
 
 
 def cmd_run(args) -> int:
+    _maybe_offer_first_run_setup(args)
     prompt_text, prompt_source = _resolve_prompt_input(args)
 
     store = SessionStore()
@@ -242,6 +279,7 @@ def cmd_run(args) -> int:
 
 
 def cmd_smoke(args) -> int:
+    _maybe_offer_first_run_setup(args)
     smoke_root = prepare_smoke_repo(args.root)
     transport_overrides = _transport_overrides_from_args(args)
     model, served = _resolve_smoke_model_or_exit(
@@ -353,6 +391,49 @@ def cmd_resume(args) -> int:
     refreshed = store.get_session(record.session_id)
     _print_session_result(refreshed or record, success, finish_reason)
     return 0 if success else 1
+
+
+def cmd_setup(args) -> int:
+    config_path = _config_local_path()
+    if config_path.exists() and not args.force:
+        if not _is_interactive():
+            raise SystemExit(f"{config_path} already exists; pass --force to overwrite")
+        answer = input(f"{config_path} already exists. Overwrite? [y/N]: ").strip().lower()
+        if answer not in {"y", "yes"}:
+            print(f"unchanged: {config_path}")
+            return 0
+
+    provider = args.provider or _prompt_choice(
+        "Provider",
+        choices=["local", "openai", "anthropic", "openrouter", "zai", "custom"],
+        default="local",
+    )
+    preset = dict(_PROVIDER_PRESETS[provider])
+    if provider == "local":
+        base_url = args.base_url or input("Local OpenAI-compatible base URL [http://localhost:8080/v1]: ").strip()
+        base_url = base_url or "http://localhost:8080/v1"
+        api_key = args.api_key or _api_key_ref_or_value(args.api_key_env, default="local")
+        model = args.model or input("Default model id/alias [qwen3-vl-8b]: ").strip() or "qwen3-vl-8b"
+    elif provider == "custom":
+        base_url = args.base_url or _prompt_required("API base URL")
+        api_key = args.api_key or _api_key_ref_or_value(args.api_key_env)
+        model = args.model or _prompt_required("Default model id")
+        preset["provider"] = "openai-compatible"
+    else:
+        base_url = args.base_url or str(preset["base_url"])
+        api_key = args.api_key or _api_key_ref_or_value(args.api_key_env)
+        model = args.model or _prompt_required("Default model id")
+
+    config_path.write_text(_render_local_config(
+        provider=str(preset["provider"]),
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+    ))
+    print(f"wrote: {config_path}")
+    print(f"provider: {provider}")
+    print(f"model: {model}")
+    return 0
 
 
 def cmd_sessions(args) -> int:
@@ -538,6 +619,83 @@ def _resolve_prompt_input(args) -> tuple[str, str]:
     if has_prompt_text:
         return args.prompt_text, "inline"
     return " ".join(args.task).strip(), "inline-positional"
+
+
+def _config_local_path() -> Path:
+    raw = os.environ.get(_CONFIG_LOCAL_ENV)
+    if raw:
+        return Path(raw).expanduser().resolve()
+    return PROJECT_ROOT / "config.local.toml"
+
+
+def _needs_first_run_setup() -> bool:
+    return not _config_local_path().exists()
+
+
+def _is_interactive() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _maybe_offer_first_run_setup(args) -> None:
+    if not _needs_first_run_setup() or not _is_interactive():
+        return
+    if getattr(args, "provider", None) or getattr(args, "base_url", None) or getattr(args, "api_key_env", None):
+        return
+    if getattr(args, "config", None):
+        return
+    answer = input("No config.local.toml found. Run yuj setup now? [Y/n]: ").strip().lower()
+    if answer in {"", "y", "yes"}:
+        cmd_setup(argparse.Namespace(
+            provider=None,
+            model=getattr(args, "model", None),
+            base_url=None,
+            api_key=None,
+            api_key_env=None,
+            force=False,
+        ))
+
+
+def _prompt_choice(label: str, *, choices: list[str], default: str) -> str:
+    prompt = f"{label} ({'/'.join(choices)}) [{default}]: "
+    while True:
+        value = input(prompt).strip().lower() or default
+        if value in choices:
+            return value
+        print(f"choose one of: {', '.join(choices)}")
+
+
+def _prompt_required(label: str) -> str:
+    while True:
+        value = input(f"{label}: ").strip()
+        if value:
+            return value
+        print(f"{label} is required")
+
+
+def _api_key_ref_or_value(api_key_env: str | None, *, default: str | None = None) -> str:
+    if api_key_env:
+        return f"$ENV:{api_key_env}"
+    if default is not None:
+        entered = getpass.getpass(f"API key [{default}]: ").strip()
+        return entered or default
+    return getpass.getpass("API key: ").strip() or _prompt_required("API key")
+
+
+def _render_local_config(*, provider: str, base_url: str, api_key: str, model: str) -> str:
+    return (
+        "# Generated by `yuj setup`. This file is gitignored.\n"
+        "[server]\n"
+        f'provider = "{_toml_escape(provider)}"\n'
+        f'base_url = "{_toml_escape(base_url)}"\n'
+        f'api_key = "{_toml_escape(api_key)}"\n'
+        "\n"
+        "[model]\n"
+        f'name = "{_toml_escape(model)}"\n'
+    )
+
+
+def _toml_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _transport_overrides_from_args(args) -> dict:

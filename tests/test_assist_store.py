@@ -754,6 +754,48 @@ def test_root_help_lists_status_and_current_commands(capsys):
     captured = capsys.readouterr()
     assert "status" in captured.out
     assert "current" in captured.out
+    assert "setup" in captured.out
+
+
+def test_setup_writes_local_provider_config(tmp_path, monkeypatch, capsys):
+    config_path = tmp_path / "config.local.toml"
+    monkeypatch.setenv("YUJ_CONFIG_LOCAL", str(config_path))
+
+    rc = main([
+        "setup",
+        "--provider", "openai",
+        "--model", "gpt-5.4",
+        "--api-key", "test-secret",
+        "--force",
+    ])
+
+    captured = capsys.readouterr()
+    text = config_path.read_text()
+    assert rc == 0
+    assert f"wrote: {config_path}" in captured.out
+    assert 'provider = "openai-compatible"' in text
+    assert 'base_url = "https://api.openai.com/v1"' in text
+    assert 'api_key = "test-secret"' in text
+    assert 'name = "gpt-5.4"' in text
+
+
+def test_setup_can_store_api_key_env_reference(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.local.toml"
+    monkeypatch.setenv("YUJ_CONFIG_LOCAL", str(config_path))
+
+    rc = main([
+        "setup",
+        "--provider", "anthropic",
+        "--model", "claude-sonnet-4-5",
+        "--api-key-env", "ANTHROPIC_API_KEY",
+        "--force",
+    ])
+
+    text = config_path.read_text()
+    assert rc == 0
+    assert 'provider = "anthropic"' in text
+    assert 'api_key = "$ENV:ANTHROPIC_API_KEY"' in text
+    assert "claude-sonnet-4-5" in text
 
 
 def test_code_uses_positional_prompt_and_current_dir_by_default(tmp_path, capsys, monkeypatch):

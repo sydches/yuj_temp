@@ -54,6 +54,7 @@ tools = "Bash,Read,Edit,Write,Glob,Grep"
 # ---------------------------------------------------------------------------
 
 [server]
+provider = "openai-compatible"           # transport: openai-compatible or anthropic
 base_url = "http://localhost:8080/v1"  # OpenAI-compatible endpoint (llama-server, vllm, etc.)
 api_key = "local"                      # API key sent in Authorization header; "local" for llama-server
 timeout_connect = 10                   # seconds to wait for TCP connection to model server

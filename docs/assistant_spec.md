@@ -99,6 +99,7 @@ Minimum queryable surface:
 
 | Command | Effect |
 |---|---|
+| `yuj setup` | Configure local LLM or hosted provider settings for this machine |
 | `yuj code "..."` | Start a session in the current directory from positional task text |
 | `yuj code --provider <name> --model <id> "..."` | Start against a named supplier preset |
 | `yuj run --cwd <path> --prompt-file <file>` | Start from a prompt file |
@@ -122,6 +123,11 @@ Implemented and useful in the current staging shell:
 
 Practical notes:
 
+- `setup` writes gitignored `config.local.toml`. It supports interactive
+  prompts and scriptable flags for provider, model, base URL, and API key.
+- Interactive `yuj` with no args runs setup first when no local config exists.
+  Interactive `code`, `run`, and `smoke` offer setup before starting a session
+  when `config.local.toml` is missing.
 - `run` and `smoke` both reconcile the model against `/v1/models` via a shared
   `resolve_served_model` helper. Local/default runs may fall back to the first
   served id when an alias is not served verbatim. Hosted provider runs with an

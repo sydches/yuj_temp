@@ -35,6 +35,7 @@ and trust the artifact trail.
 Already implemented:
 
 - `run`
+- `setup`
 - `resume`
 - `approve`
 - `sessions`
@@ -62,6 +63,8 @@ Already implemented:
 - startup banner before live trace output
 - supplier presets for `local`, `openai`, `anthropic`, `zai`, `openrouter`,
   and `custom`, with env-referenced secrets and session-local transport overlays
+- first-run setup that writes gitignored `config.local.toml` and prompts
+  interactively when local config is missing
 - direct Anthropic Messages API adapter plus OpenAI-compatible transport for
   OpenAI, Z.ai, OpenRouter, local servers, and custom gateways
 

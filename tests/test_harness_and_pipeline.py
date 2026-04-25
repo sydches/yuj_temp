@@ -64,6 +64,14 @@ class TestConfig:
         cfg = load_config(overrides={"model": "test-override"})
         assert cfg.model == "test-override"
 
+    def test_load_config_re_reads_local_overlay_each_call(self, tmp_path):
+        local = tmp_path / "config.local.toml"
+        local.write_text('[model]\nname = "first-model"\n')
+        with patch("llm_solver.config._LOCAL_CONFIG", local):
+            assert load_config().model == "first-model"
+            local.write_text('[model]\nname = "second-model"\n')
+            assert load_config().model == "second-model"
+
     def test_load_config_resolves_api_key_env_reference(self, monkeypatch):
         monkeypatch.setenv("YUJ_TEST_API_KEY", "resolved-secret")
         cfg = load_config(overrides={"api_key": "$ENV:YUJ_TEST_API_KEY"})
