@@ -49,6 +49,15 @@ def test_session_store_round_trip(tmp_path: Path):
     sessions = store.list_sessions(limit=5)
     assert [item.session_id for item in sessions] == [record.session_id]
 
+    assert store.get_active_session(tmp_path / "work") is None
+    store.set_active_session(tmp_path / "work", record.session_id)
+    active = store.get_active_session(tmp_path / "work")
+    assert active is not None
+    assert active.session_id == record.session_id
+    assert record.session_id in store.list_active_session_ids()
+    store.clear_active_session(tmp_path / "work", session_id=record.session_id)
+    assert store.get_active_session(tmp_path / "work") is None
+
 
 def test_session_trace_tail_formats_recent_events(tmp_path: Path):
     artifact_dir = tmp_path / "session"
@@ -656,6 +665,7 @@ def test_code_uses_positional_prompt_and_current_dir_by_default(tmp_path, capsys
     assert sessions[0].cwd == str(work_dir.resolve())
     assert sessions[0].prompt_text == "fix the failing test"
     assert sessions[0].prompt_source == "inline-positional"
+    assert store.get_active_session_id(work_dir) == sessions[0].session_id
 
 
 def test_run_persists_exact_served_model_id(tmp_path, capsys):
@@ -742,6 +752,51 @@ def test_show_without_id_prefers_latest_session_in_current_cwd(tmp_path, capsys,
     assert f"session_id: {second.session_id}" in captured.out
 
 
+def test_show_without_id_prefers_active_session_over_newer_session_in_current_cwd(tmp_path, capsys, monkeypatch):
+    store = SessionStore(tmp_path / "assist-home")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.chdir(repo)
+
+    first = store.create_session(
+        cwd=repo,
+        model="older-model",
+        prompt_text="older",
+        prompt_source="inline",
+        context_mode="full",
+        system_prompt_path=None,
+        config_paths=[],
+    )
+    second = store.create_session(
+        cwd=repo,
+        model="newer-model",
+        prompt_text="newer",
+        prompt_source="inline",
+        context_mode="full",
+        system_prompt_path=None,
+        config_paths=[],
+    )
+    store.set_active_session(repo, first.session_id)
+    artifact_dir = Path(first.artifact_dir)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir / ".trace.jsonl").write_text(
+        json.dumps({
+            "event": "session_end",
+            "session_number": 1,
+            "finish_reason": "stop",
+            "turns": 1,
+        }) + "\n"
+    )
+
+    with patch("scripts.llm_assist.__main__.SessionStore", return_value=store):
+        rc = main(["show", "--trace-lines", "0", "--turns", "0"])
+
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert f"session_id: {first.session_id}" in captured.out
+    assert second.session_id not in captured.out
+
+
 def test_resume_without_id_prefers_latest_resumable_session_in_current_cwd(tmp_path, monkeypatch):
     store = SessionStore(tmp_path / "assist-home")
     repo_a = tmp_path / "repo-a"
@@ -808,6 +863,59 @@ def test_resume_without_id_prefers_latest_resumable_session_in_current_cwd(tmp_p
     assert selected == [local_paused.session_id]
 
 
+def test_resume_without_id_prefers_active_resumable_session_over_newer_resumable(tmp_path, monkeypatch):
+    store = SessionStore(tmp_path / "assist-home")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.chdir(repo)
+
+    first = store.create_session(
+        cwd=repo,
+        model="older-model",
+        prompt_text="resume older",
+        prompt_source="inline",
+        context_mode="full",
+        system_prompt_path=None,
+        config_paths=[],
+    )
+    store.update_session(first.session_id, status="paused", last_finish_reason="max_turns")
+    second = store.create_session(
+        cwd=repo,
+        model="newer-model",
+        prompt_text="resume newer",
+        prompt_source="inline",
+        context_mode="full",
+        system_prompt_path=None,
+        config_paths=[],
+    )
+    store.update_session(second.session_id, status="paused", last_finish_reason="max_turns")
+    store.set_active_session(repo, first.session_id)
+
+    selected: list[str] = []
+
+    def fake_run_session(store_obj, record, *, resume):
+        selected.append(record.session_id)
+        artifact_dir = Path(record.artifact_dir)
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        (artifact_dir / ".trace.jsonl").write_text(
+            json.dumps({
+                "event": "session_end",
+                "session_number": 2,
+                "finish_reason": "stop",
+                "turns": 2,
+            }) + "\n"
+        )
+        store_obj.update_session(record.session_id, status="completed", last_finish_reason="stop")
+        return True, "stop"
+
+    with patch("scripts.llm_assist.__main__.SessionStore", return_value=store), \
+            patch("scripts.llm_assist.__main__.run_session", side_effect=fake_run_session):
+        rc = main(["resume"])
+
+    assert rc == 0
+    assert selected == [first.session_id]
+
+
 def test_approve_without_id_prefers_latest_pending_request_in_current_cwd(tmp_path, capsys, monkeypatch):
     store = SessionStore(tmp_path / "assist-home")
     repo_a = tmp_path / "repo-a"
@@ -864,6 +972,46 @@ def test_approve_without_id_prefers_latest_pending_request_in_current_cwd(tmp_pa
     assert approval is not None
     assert approval["status"] == "approved"
     assert f"approved: {local_record.session_id}" in captured.out
+
+
+def test_sessions_marks_active_session_and_current_cwd(tmp_path, capsys, monkeypatch):
+    store = SessionStore(tmp_path / "assist-home")
+    repo = tmp_path / "repo"
+    other = tmp_path / "other"
+    repo.mkdir()
+    other.mkdir()
+    monkeypatch.chdir(repo)
+
+    local_record = store.create_session(
+        cwd=repo,
+        model="local-model",
+        prompt_text="local",
+        prompt_source="inline",
+        context_mode="full",
+        system_prompt_path=None,
+        config_paths=[],
+    )
+    remote_record = store.create_session(
+        cwd=other,
+        model="remote-model",
+        prompt_text="remote",
+        prompt_source="inline",
+        context_mode="full",
+        system_prompt_path=None,
+        config_paths=[],
+    )
+    store.set_active_session(repo, local_record.session_id)
+    store.set_active_session(other, remote_record.session_id)
+
+    with patch("scripts.llm_assist.__main__.SessionStore", return_value=store):
+        rc = main(["sessions"])
+
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert f"{local_record.session_id}  created" in captured.out
+    assert "[active cwd]" in captured.out
+    assert f"{remote_record.session_id}  created" in captured.out
+    assert "[active]" in captured.out
 
 
 def test_smoke_command_fails_when_repo_not_fixed(tmp_path, capsys):

@@ -74,8 +74,12 @@ Equivalent repo-local entrypoints:
 - `show` derives live status from `.trace.jsonl` + `approval_request.json`
   (approval_pending / running / completed / paused / error) instead of
   trusting the SQLite row blindly
-- `show`, `resume`, and `approve` accept no session id and default to the
-  latest relevant session, preferring the current repo cwd
+- each repo cwd keeps an active session pointer
+- `show`, `resume`, and `approve` accept no session id and resolve the active
+  session for the current repo before falling back to the latest relevant
+  session
+- `sessions` marks active sessions with `[active]` and the current repo with
+  `[cwd]`
 - `code`/`run` accept positional task text and default `--cwd` to the current
   directory for the common path
 - `smoke` acceptance checks: `calc.py` contains the fix, `tests/test_calc.py`

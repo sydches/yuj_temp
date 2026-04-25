@@ -27,6 +27,12 @@ create table if not exists sessions (
     context_mode text not null,
     system_prompt_path text,
     config_paths_json text not null
+);
+
+create table if not exists active_sessions (
+    cwd text primary key,
+    session_id text not null,
+    updated_at text not null
 )
 """
 
@@ -73,7 +79,7 @@ class SessionStore:
         (self.root / "sessions").mkdir(parents=True, exist_ok=True)
         self.db_path = self.root / "sessions.sqlite3"
         with self._connect() as conn:
-            conn.execute(_SCHEMA)
+            conn.executescript(_SCHEMA)
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -155,6 +161,59 @@ class SessionStore:
                 (limit,),
             ).fetchall()
         return [_row_to_record(row) for row in rows]
+
+    def set_active_session(self, cwd: Path | str, session_id: str) -> None:
+        now = _utc_now()
+        resolved_cwd = str(Path(cwd).resolve())
+        with self._connect() as conn:
+            conn.execute(
+                """
+                insert into active_sessions (cwd, session_id, updated_at)
+                values (?, ?, ?)
+                on conflict(cwd) do update set
+                    session_id = excluded.session_id,
+                    updated_at = excluded.updated_at
+                """,
+                (resolved_cwd, session_id, now),
+            )
+
+    def clear_active_session(self, cwd: Path | str, *, session_id: str | None = None) -> None:
+        resolved_cwd = str(Path(cwd).resolve())
+        with self._connect() as conn:
+            if session_id is None:
+                conn.execute(
+                    "delete from active_sessions where cwd = ?",
+                    (resolved_cwd,),
+                )
+                return
+            conn.execute(
+                "delete from active_sessions where cwd = ? and session_id = ?",
+                (resolved_cwd, session_id),
+            )
+
+    def get_active_session_id(self, cwd: Path | str) -> str | None:
+        resolved_cwd = str(Path(cwd).resolve())
+        with self._connect() as conn:
+            row = conn.execute(
+                "select session_id from active_sessions where cwd = ?",
+                (resolved_cwd,),
+            ).fetchone()
+        return str(row["session_id"]) if row is not None else None
+
+    def get_active_session(self, cwd: Path | str) -> SessionRecord | None:
+        session_id = self.get_active_session_id(cwd)
+        if session_id is None:
+            return None
+        record = self.get_session(session_id)
+        if record is not None:
+            return record
+        self.clear_active_session(cwd, session_id=session_id)
+        return None
+
+    def list_active_session_ids(self) -> set[str]:
+        with self._connect() as conn:
+            rows = conn.execute("select session_id from active_sessions").fetchall()
+        return {str(row["session_id"]) for row in rows}
 
     def update_session(
         self,

@@ -244,6 +244,7 @@ def cmd_resume(args) -> int:
     if record.status == "completed":
         _print_session_result(record, True, record.last_finish_reason)
         return 0
+    store.set_active_session(record.cwd, record.session_id)
     _print_session_start(record, action="resuming")
     with TraceFollower(record.artifact_path):
         success, finish_reason = run_session(store, record, resume=True)
@@ -258,10 +259,18 @@ def cmd_sessions(args) -> int:
     if not sessions:
         print("(no assistant sessions)")
         return 0
+    current_cwd = str(Path.cwd().resolve())
+    active_ids = store.list_active_session_ids()
     for record in sessions:
+        flags: list[str] = []
+        if record.session_id in active_ids:
+            flags.append("active")
+        if record.cwd == current_cwd:
+            flags.append("cwd")
+        flag_text = f" [{' '.join(flags)}]" if flags else ""
         print(
             f"{record.session_id}  {record.status:9s}  "
-            f"model={record.model}  cwd={record.cwd}"
+            f"model={record.model}  cwd={record.cwd}{flag_text}"
         )
         if record.last_finish_reason:
             print(f"    last_finish_reason={record.last_finish_reason}")
@@ -400,12 +409,23 @@ def _resolve_session_record(store: SessionStore, session_ref: str, *, selector: 
             raise SystemExit(f"unknown session: {session_ref}")
         return record
 
-    current_cwd = str(Path.cwd().resolve())
+    current_cwd = Path.cwd().resolve()
     sessions = store.list_sessions(limit=200)
     if not sessions:
         raise SystemExit("no assistant sessions found")
 
-    scoped = [record for record in sessions if record.cwd == current_cwd]
+    active_record = store.get_active_session(current_cwd)
+    if selector == "latest" and active_record is not None:
+        return active_record
+    if selector == "resumable" and active_record is not None and active_record.status != "completed":
+        return active_record
+    if selector == "pending_approval" and active_record is not None:
+        approval = load_approval_request(active_record.artifact_path)
+        if approval is not None and approval.get("status") == "pending":
+            return active_record
+
+    current_cwd_str = str(current_cwd)
+    scoped = [record for record in sessions if record.cwd == current_cwd_str]
 
     if selector == "resumable":
         for records in (scoped, sessions):

@@ -71,9 +71,11 @@ Ease-of-use defaults:
 - `yuj code "..."` runs against the current directory by default
 - positional prompt text is accepted for the common path; `--prompt-text` and
   `--prompt-file` still work
-- `yuj show`, `yuj resume`, and `yuj approve` target the latest relevant
-  session by default, preferring the current repo cwd before falling back to
-  the global latest session
+- each repo cwd keeps an active session pointer
+- `yuj show`, `yuj resume`, and `yuj approve` resolve the active session for
+  the current repo first, then fall back to the latest relevant session
+- `yuj sessions` marks active sessions with `[active]` and the current repo
+  with `[cwd]`
 
 `run` and `smoke` reconcile the requested model against `/v1/models` at session
 creation: alias-resolved ids that are not served verbatim fall back to the

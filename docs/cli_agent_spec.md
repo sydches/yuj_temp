@@ -50,6 +50,7 @@ Already implemented:
 - exact served model id resolution for `run` and `smoke`
 - positional task text with current-cwd default for `code` / `run`
 - latest-session defaults for `show` / `resume` / `approve`
+- per-cwd active session pointers used before latest-session fallback
 - startup banner before live trace output
 
 Already good enough:

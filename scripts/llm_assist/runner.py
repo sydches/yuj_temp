@@ -51,6 +51,7 @@ def create_session(
         system_prompt_path=system_prompt_path,
         config_paths=config_paths,
     )
+    store.set_active_session(cwd, record.session_id)
     _seed_session_artifacts(record)
     return record
 

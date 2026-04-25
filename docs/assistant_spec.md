@@ -133,9 +133,12 @@ Practical notes:
   (approval_pending / running / completed / paused / error / fallback) instead
   of trusting the SQLite row blindly, so resumed running sessions do not show
   stale prior finish reasons.
-- `show`, `resume`, and `approve` accept no session id and default to the
-  latest relevant session, preferring the current repo cwd before the global
-  latest session list.
+- each repo cwd keeps an active session pointer.
+- `show`, `resume`, and `approve` accept no session id and resolve the active
+  session for the current repo before falling back to the latest relevant
+  session list.
+- `sessions` marks active sessions with `[active]` and the current repo with
+  `[cwd]`.
 - Assistant-mode approval classifier covers: `rm`, `git reset --hard`,
   `git clean`, `git checkout --`, `chmod`, `chown`, plus `mv`/`cp` when any
   positional path resolves outside the repo root. Measurement mode is
