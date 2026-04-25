@@ -21,6 +21,7 @@ from .runner import (
     resolve_smoke_model,
     run_session,
     save_approval_request,
+    session_compact_summary,
     session_trace_tail,
     session_turn_count,
     session_turn_tail,
@@ -105,6 +106,15 @@ def main(argv: list[str] | None = None) -> int:
     sessions_parser = sub.add_parser("sessions", help="list known assistant sessions")
     sessions_parser.add_argument("--limit", type=int, default=20)
     sessions_parser.set_defaults(func=cmd_sessions)
+
+    status_parser = sub.add_parser("status", help="show concise status for one session")
+    status_parser.add_argument(
+        "session_id",
+        nargs="?",
+        default="latest",
+        help="assistant session id/ref or 'latest' (default: latest session)",
+    )
+    status_parser.set_defaults(func=cmd_status)
 
     show_parser = sub.add_parser("show", help="inspect one assistant session")
     show_parser.add_argument(
@@ -309,6 +319,49 @@ def cmd_approve(args) -> int:
     return 0
 
 
+def cmd_status(args) -> int:
+    store = SessionStore()
+    record = _resolve_session_record(store, args.session_id, selector="latest")
+    live = derive_live_state(record.artifact_path)
+    status = live.status or record.status
+    finish_reason = live.finish_reason if live.status else record.last_finish_reason
+    turns = session_turn_count(record.artifact_path)
+    approval = load_approval_request(record.artifact_path)
+    lock = store.get_session_lock(record.session_id)
+    interrupt = load_interrupt_marker(record.artifact_path)
+
+    print(f"session_id: {record.session_id}")
+    print(f"session_ref: {record.short_id}")
+    print(f"status: {status}")
+    if finish_reason:
+        print(f"finish_reason: {finish_reason}")
+    print(f"turns: {turns}")
+    print(f"cwd: {record.cwd}")
+    print(f"model: {record.model}")
+    if approval is not None and approval.get("status") == "pending":
+        print("approval: pending")
+    else:
+        print("approval: none")
+    if lock is not None:
+        print(f"lock: pid={lock.owner_pid} host={lock.owner_host}")
+    else:
+        print("lock: none")
+    if interrupt is not None:
+        print("interrupt: interrupted")
+    else:
+        print("interrupt: none")
+
+    if approval is not None and approval.get("status") == "pending":
+        print(f"next: {CLI_NAME} approve {record.short_id}")
+    elif status in {"paused", "approval_pending"}:
+        print(f"next: {CLI_NAME} resume {record.short_id}")
+    elif status == "running":
+        print(f"next: {CLI_NAME} show {record.short_id}")
+    else:
+        print("next: none")
+    return 0
+
+
 def cmd_show(args) -> int:
     store = SessionStore()
     record = _resolve_session_record(store, args.session_id, selector="latest")
@@ -429,8 +482,33 @@ def _print_session_result(record, success: bool, finish_reason: str | None) -> N
     if finish_reason:
         print(f"finish_reason: {finish_reason}")
     print(f"turns: {turns}")
+    _print_run_compact_summary(record)
     if not success and record.status != "completed":
         print(f"resume with: {CLI_NAME} resume {record.short_id}")
+
+
+def _print_run_compact_summary(record) -> None:
+    summary = session_compact_summary(record.artifact_path)
+    changed_files = list(summary.get("changed_files", []))
+    last_test_cmd = str(summary.get("last_test_cmd") or "")
+    last_test_result = str(summary.get("last_test_result") or "unknown")
+
+    if not changed_files and not last_test_cmd:
+        return
+
+    print("summary:")
+    if changed_files:
+        shown = changed_files[:5]
+        tail = " ..." if len(changed_files) > 5 else ""
+        print(f"  changed_files: {', '.join(shown)}{tail}")
+    else:
+        print("  changed_files: none observed")
+
+    if last_test_cmd:
+        print(f"  last_test: {last_test_cmd}")
+        print(f"  last_test_result: {last_test_result}")
+    else:
+        print("  last_test: none observed")
 
 
 def _handle_keyboard_interrupt(store: SessionStore, record) -> int:

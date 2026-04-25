@@ -37,6 +37,7 @@ yuj --help
 yuj code "Fix the failing test."
 yuj smoke
 yuj sessions
+yuj status
 yuj show
 yuj approve
 yuj resume
@@ -66,6 +67,7 @@ yuj code --cwd /path/to/other/repo "Fix the failing test, run the relevant test,
 yuj run --prompt-file task.txt
 
 yuj sessions
+yuj status
 yuj show
 yuj resume
 ```
@@ -86,6 +88,7 @@ Ease-of-use defaults:
 - active runs hold a session lock; `yuj sessions` marks those with `[locked]`
 - explicit session references accept the full id, the 8-char `session_ref`,
   or any unique prefix
+- `yuj status [session_ref]` gives a concise state/next-action view
 
 `run` and `smoke` reconcile the requested model against `/v1/models` at session
 creation: alias-resolved ids that are not served verbatim fall back to the
@@ -99,6 +102,9 @@ tailing `.trace.jsonl`. No engine changes are required for this.
 Each session now prints an immediate startup banner with the session id, cwd,
 model, artifact path, and served model list before the live trace begins, so
 the operator does not need to wait for completion just to learn what started.
+
+Completed runs print a compact summary (changed files + last observed test
+command/outcome) derived from trace events.
 
 Only one terminal may own a session at a time. If you try to resume a locked
 session from another terminal, `yuj` refuses cleanly and shows the owning pid,

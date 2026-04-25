@@ -41,6 +41,7 @@ Assistant shell commands currently implemented:
 - `yuj resume [session_id]`
 - `yuj approve [session_id]`
 - `yuj sessions`
+- `yuj status [session_id]`
 - `yuj show [session_id]`
 - `yuj inspect knobs [query]`
 - `yuj inspect presets`
@@ -86,10 +87,13 @@ Equivalent repo-local entrypoints:
   if another terminal already owns the session
 - explicit session references accept the full id, the 8-char `session_ref`,
   or any unique prefix
+- `status` provides a concise state + next-action view for one session
 - `Ctrl-C` pauses a session cleanly as `interrupted`, leaves it resumable, and
   is reflected in `show` via a shell-owned interrupt marker
 - model-resolution failures now surface as short operator messages naming the
   base URL and `/v1/models` instead of raw tracebacks
+- completed runs print a compact summary (changed files + last observed test
+  command/outcome) derived from trace events
 - `code`/`run` accept positional task text and default `--cwd` to the current
   directory for the common path
 - `smoke` acceptance checks: `calc.py` contains the fix, `tests/test_calc.py`

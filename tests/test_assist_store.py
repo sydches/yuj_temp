@@ -623,6 +623,9 @@ def test_cmd_run_prints_progress_before_final_result(tmp_path, capsys):
     assert idx_progress != -1 and idx_status != -1
     assert idx_start < idx_progress
     assert idx_progress < idx_status
+    assert "summary:" in captured.out
+    assert "last_test: pytest -q" in captured.out
+    assert "last_test_result: pass" in captured.out
     sessions = store.list_sessions(limit=1)
     assert sessions, "expected a persisted session record"
     assert store.get_session_lock(sessions[0].session_id) is None
@@ -717,6 +720,17 @@ def test_code_alias_help_exits_cleanly(capsys):
     assert "usage: yuj code" in captured.out
     assert "--cwd" in captured.out
     assert "--prompt-text" in captured.out
+
+
+def test_root_help_lists_status_command(capsys):
+    try:
+        main(["--help"])
+    except SystemExit as exc:
+        assert exc.code == 0
+    else:
+        raise AssertionError("expected SystemExit")
+    captured = capsys.readouterr()
+    assert "status" in captured.out
 
 
 def test_code_uses_positional_prompt_and_current_dir_by_default(tmp_path, capsys, monkeypatch):
@@ -923,6 +937,67 @@ def test_show_command_reports_interrupted_session_from_marker(tmp_path, capsys):
     assert f"session_ref: {record.short_id}" in captured.out
     assert "finish_reason: interrupted" in captured.out
     assert "interrupt: interrupted at 2026-04-25T00:00:00+00:00" in captured.out
+
+
+def test_status_command_prints_next_action_for_pending_approval(tmp_path, capsys):
+    store = SessionStore(tmp_path / "assist-home")
+    record = store.create_session(
+        cwd=tmp_path / "work",
+        model="qwen3-8b",
+        prompt_text="Fix the failing test",
+        prompt_source="inline",
+        context_mode="full",
+        system_prompt_path=None,
+        config_paths=[],
+    )
+    store.update_session(record.session_id, status="paused", last_finish_reason="approval_required")
+    save_approval_request(
+        Path(record.artifact_dir),
+        {
+            "status": "pending",
+            "tool_name": "bash",
+            "cmd": "rm -rf build",
+            "args_summary": "cmd='rm -rf build'",
+            "reason": "destructive file deletion via rm",
+        },
+    )
+
+    with patch("scripts.llm_assist.__main__.SessionStore", return_value=store):
+        rc = main(["status", record.short_id])
+
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "approval: pending" in captured.out
+    assert f"next: yuj approve {record.short_id}" in captured.out
+
+
+def test_status_command_prints_next_action_for_running_session(tmp_path, capsys):
+    store = SessionStore(tmp_path / "assist-home")
+    record = store.create_session(
+        cwd=tmp_path / "work",
+        model="qwen3-8b",
+        prompt_text="Fix the failing test",
+        prompt_source="inline",
+        context_mode="full",
+        system_prompt_path=None,
+        config_paths=[],
+    )
+    artifact_dir = Path(record.artifact_dir)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir / ".trace.jsonl").write_text(
+        json.dumps({
+            "event": "session_start",
+            "session_number": 1,
+        }) + "\n"
+    )
+
+    with patch("scripts.llm_assist.__main__.SessionStore", return_value=store):
+        rc = main(["status", record.short_id])
+
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "status: running" in captured.out
+    assert f"next: yuj show {record.short_id}" in captured.out
 
 
 def test_show_accepts_short_session_ref(tmp_path, capsys):

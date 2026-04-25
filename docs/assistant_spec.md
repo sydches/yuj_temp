@@ -104,6 +104,7 @@ Minimum queryable surface:
 | `yuj run --cwd <path> --prompt-text ...` | Explicit flag-based start path |
 | `yuj resume [session_id]` | Resume an existing session; default is latest resumable session |
 | `yuj sessions` | List sessions with cwd, model, and latest status |
+| `yuj status [session_id]` | Show concise state + next action for one session |
 | `yuj inspect knobs [query]` | Search/describe knobs via `scripts/knob.py` |
 | `yuj inspect presets` | Show curated presets |
 
@@ -129,6 +130,8 @@ Practical notes:
   runs by tailing `.trace.jsonl`. No engine changes are required.
 - `run`, `resume`, and `smoke` print a startup banner with session id, cwd,
   model, artifact path, and served-model information before the live trace.
+- completed runs print a compact summary (changed files + last observed test
+  command/outcome) derived from trace events.
 - `show` derives live status from `.trace.jsonl` + `approval_request.json`
   (approval_pending / running / completed / paused / error / fallback) instead
   of trusting the SQLite row blindly, so resumed running sessions do not show

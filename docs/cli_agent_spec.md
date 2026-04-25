@@ -55,6 +55,8 @@ Already implemented:
 - clean interrupted-session handling with resumable paused state
 - concise model-resolution failure messages for unreachable local servers
 - short deterministic session references via `session_ref` and unique prefixes
+- concise `status` command for per-session next-action checks
+- compact end-of-run summaries derived from trace events
 - startup banner before live trace output
 
 Already good enough:

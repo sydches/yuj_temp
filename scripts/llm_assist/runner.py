@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -277,6 +278,48 @@ def session_turn_tail(artifact_dir: Path, *, limit: int = 5) -> list[str]:
     return rendered
 
 
+def session_compact_summary(artifact_dir: Path) -> dict[str, object]:
+    """Return a compact operator summary derived from trace events."""
+    events = _load_trace_events(Path(artifact_dir) / ".trace.jsonl")
+    changed_files: list[str] = []
+    changed_seen: set[str] = set()
+    last_test_cmd: str | None = None
+    last_test_result: str | None = None
+    finish_reason: str | None = None
+
+    for ev in events:
+        event_type = str(ev.get("event") or "")
+        if event_type == "session_end":
+            reason = ev.get("finish_reason")
+            finish_reason = str(reason) if reason is not None else None
+            continue
+        if event_type != "tool_call":
+            continue
+
+        tool_name = str(ev.get("tool_name") or "")
+        args_summary = str(ev.get("args_summary") or "")
+        result_summary = str(ev.get("result_summary") or "")
+
+        if tool_name in {"edit", "write", "multi_edit"}:
+            for file_path in _extract_paths_from_args(args_summary):
+                if file_path not in changed_seen:
+                    changed_seen.add(file_path)
+                    changed_files.append(file_path)
+
+        if tool_name == "bash":
+            cmd = _extract_shell_cmd(args_summary)
+            if cmd and _looks_like_test_command(cmd):
+                last_test_cmd = cmd
+                last_test_result = _classify_test_outcome(result_summary)
+
+    return {
+        "changed_files": changed_files,
+        "last_test_cmd": last_test_cmd,
+        "last_test_result": last_test_result or "unknown",
+        "finish_reason": finish_reason,
+    }
+
+
 def _seed_session_artifacts(record: SessionRecord) -> None:
     artifact_dir = record.artifact_path
     artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -363,6 +406,43 @@ def _truncate_text(text: str, max_chars: int) -> str:
     if len(text) <= max_chars:
         return text
     return text[: max_chars - 3] + "..."
+
+
+def _extract_paths_from_args(args_summary: str) -> list[str]:
+    # args_summary is already a compact shell-safe string; simple path heuristics are enough.
+    return [match for match in re.findall(r"path='([^']+)'", args_summary) if match]
+
+
+def _extract_shell_cmd(args_summary: str) -> str:
+    match = re.search(r"cmd='([^']*)'", args_summary)
+    if match is None:
+        return ""
+    return match.group(1).strip()
+
+
+def _looks_like_test_command(cmd: str) -> bool:
+    tokens = cmd.lower()
+    probes = (
+        "pytest",
+        "go test",
+        "cargo test",
+        "npm test",
+        "pnpm test",
+        "yarn test",
+        "ctest",
+        "nosetests",
+        "unittest",
+    )
+    return any(probe in tokens for probe in probes)
+
+
+def _classify_test_outcome(result_summary: str) -> str:
+    lowered = result_summary.lower()
+    if "[exit code: 0]" in lowered or " passed" in lowered or "1 passed" in lowered:
+        return "pass"
+    if "[exit code: 1]" in lowered or " failed" in lowered or "error" in lowered:
+        return "fail"
+    return "unknown"
 
 
 def approval_request_path(artifact_dir: Path) -> Path:
@@ -523,6 +603,7 @@ __all__ = [
     "resolve_smoke_model",
     "save_approval_request",
     "save_interrupt_marker",
+    "session_compact_summary",
     "session_trace_tail",
     "session_turn_tail",
     "session_turn_count",
