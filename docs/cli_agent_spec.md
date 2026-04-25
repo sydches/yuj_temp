@@ -60,6 +60,10 @@ Already implemented:
 - `current` alias for `status latest`
 - compact end-of-run summaries derived from trace events
 - startup banner before live trace output
+- supplier presets for `local`, `openai`, `anthropic`, `zai`, `openrouter`,
+  and `custom`, with env-referenced secrets and session-local transport overlays
+- direct Anthropic Messages API adapter plus OpenAI-compatible transport for
+  OpenAI, Z.ai, OpenRouter, local servers, and custom gateways
 
 Already good enough:
 

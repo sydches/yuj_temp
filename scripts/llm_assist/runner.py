@@ -503,10 +503,13 @@ def mark_session_interrupted(artifact_dir: Path) -> None:
     )
 
 
-def _default_model(config_paths: list[Path]) -> str:
+def _default_model(config_paths: list[Path], *, config_overrides: dict | None = None) -> str:
+    overrides = {"runtime_mode": "assistant", "max_sessions": 1}
+    if config_overrides:
+        overrides.update(config_overrides)
     cfg = load_config(
         user_config=config_paths,
-        overrides={"runtime_mode": "assistant", "max_sessions": 1},
+        overrides=overrides,
     )
     return cfg.model
 
@@ -514,6 +517,7 @@ def _default_model(config_paths: list[Path]) -> str:
 def resolve_served_model(
     config_paths: list[Path],
     requested_model: str | None = None,
+    config_overrides: dict | None = None,
 ) -> tuple[str, list[str]]:
     """Resolve an exact served model id against ``/v1/models``.
 
@@ -522,10 +526,17 @@ def resolve_served_model(
     served id is used. Raises RuntimeError if the server returns no
     models. Shared by ``run`` and ``smoke``.
     """
-    base_model = resolve_model(requested_model) if requested_model else _default_model(config_paths)
+    overrides = {"runtime_mode": "assistant", "max_sessions": 1}
+    if config_overrides:
+        overrides.update(config_overrides)
+    base_model = resolve_model(requested_model) if requested_model else _default_model(
+        config_paths,
+        config_overrides=overrides,
+    )
+    overrides["model"] = base_model
     cfg = load_config(
         user_config=config_paths,
-        overrides={"runtime_mode": "assistant", "max_sessions": 1, "model": base_model},
+        overrides=overrides,
     )
     profile = _load_profile(cfg)
     client = LlamaClient(cfg, profile=profile)
@@ -534,12 +545,31 @@ def resolve_served_model(
         raise RuntimeError("server returned no models from /v1/models")
     if base_model in served:
         return base_model, served
+    if requested_model and _is_remote_transport(config_overrides):
+        return base_model, served
     return served[0], served
 
 
-def resolve_smoke_model(config_paths: list[Path], requested_model: str | None = None) -> tuple[str, list[str]]:
+def resolve_smoke_model(
+    config_paths: list[Path],
+    requested_model: str | None = None,
+    config_overrides: dict | None = None,
+) -> tuple[str, list[str]]:
     """Backwards-compatible alias for ``resolve_served_model``."""
-    return resolve_served_model(config_paths, requested_model=requested_model)
+    return resolve_served_model(
+        config_paths,
+        requested_model=requested_model,
+        config_overrides=config_overrides,
+    )
+
+
+def _is_remote_transport(config_overrides: dict | None) -> bool:
+    if not config_overrides:
+        return False
+    provider = config_overrides.get("provider")
+    if provider == "anthropic":
+        return True
+    return "base_url" in config_overrides
 
 
 def _load_profile(cfg):

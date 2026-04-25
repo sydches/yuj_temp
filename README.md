@@ -65,6 +65,9 @@ yuj inspect knobs runtime
 
 yuj code "Fix the failing test, run the relevant test, then finish."
 yuj code --cwd /path/to/other/repo "Fix the failing test, run the relevant test, then finish."
+yuj code --provider openai --model gpt-5.4 "Fix the failing test, run the relevant test, then finish."
+yuj code --provider anthropic --model claude-sonnet-4-5 "Fix the failing test, run the relevant test, then finish."
+yuj code --provider openrouter --model anthropic/claude-sonnet-4.5 "Fix the failing test, run the relevant test, then finish."
 yuj run --prompt-file task.txt
 
 yuj sessions
@@ -91,11 +94,28 @@ Ease-of-use defaults:
   or any unique prefix
 - `yuj status [session_ref]` gives a concise state/next-action view
 - `yuj current` is a fast alias for `yuj status latest`
+- `--provider` accepts `local`, `openai`, `anthropic`, `zai`, `openrouter`,
+  and `custom`; provider settings are persisted with the session so `resume`
+  uses the same supplier
+- secrets are referenced by env var (`--api-key-env NAME`) rather than stored
+  in the session database
 
-`run` and `smoke` reconcile the requested model against `/v1/models` at session
-creation: alias-resolved ids that are not served verbatim fall back to the
-first served id. The exact served id is what gets persisted in session
-metadata.
+`run` and `smoke` reconcile the model against `/v1/models` at session creation.
+For local/default runs, alias-resolved ids that are not served verbatim fall
+back to the first served id. For hosted provider runs with explicit `--model`,
+the requested model id is honored even if the provider's model-list endpoint is
+incomplete. The resolved model id is what gets persisted in session metadata.
+
+Provider defaults:
+
+| Provider | Base URL | Key env |
+|---|---|---|
+| `local` | configured `[server].base_url` | configured `[server].api_key` |
+| `openai` | `https://api.openai.com/v1` | `OPENAI_API_KEY` |
+| `anthropic` | `https://api.anthropic.com/v1` | `ANTHROPIC_API_KEY` |
+| `zai` | `https://api.z.ai/api/paas/v4` | `ZAI_API_KEY` |
+| `openrouter` | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
+| `custom` | pass `--base-url` | pass `--api-key-env` or use config |
 
 While a session is running, `run` and `resume` print incremental progress to
 stdout — session start, tool calls, approval requests, and session end — by

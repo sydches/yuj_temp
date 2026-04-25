@@ -206,6 +206,7 @@ class Config:
     variant_name: str = ""
     runtime_mode: str = "measurement"
     analysis_task_format: str = "pytest"
+    provider: str = "openai-compatible"
     rumination_gate_max_blocks: int = 0
     resume_gate_escalation: str = "Session ended: {n} consecutive tool calls were blocked by the rumination gate. Your current code has been preserved."
     # Model-facing strings emitted by guardrails (done_guard, rumination_gate)
@@ -604,6 +605,7 @@ def _extract_config_fields(d: dict) -> dict:
         "variant_name": experiment.get("variant_name", ""),
         "runtime_mode": d.get("runtime", {}).get("mode", "measurement"),
         "analysis_task_format": analysis.get("task_format", "pytest"),
+        "provider": d.get("server", {}).get("provider", "openai-compatible"),
     }
 
 
@@ -699,10 +701,23 @@ def load_config(
         for k, v in overrides.items():
             if v is not None and k in flat:
                 flat[k] = type(flat[k])(v)
+    flat["api_key"] = _resolve_env_secret(str(flat["api_key"]), "server.api_key")
 
     cfg = Config(**flat)
     _validate_coupling(cfg)
     return cfg
+
+
+def _resolve_env_secret(value: str, config_key: str) -> str:
+    """Resolve persisted env references without storing API keys in session DBs."""
+    for prefix in ("$ENV:", "env:"):
+        if value.startswith(prefix):
+            env_name = value[len(prefix):]
+            resolved = os.environ.get(env_name)
+            if resolved is None:
+                raise KeyError(f"{config_key} references unset environment variable {env_name!r}")
+            return resolved
+    return value
 
 
 def dump_config(cfg: Config) -> dict:

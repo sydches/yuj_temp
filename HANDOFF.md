@@ -36,6 +36,8 @@ Primary constraints:
 Assistant shell commands currently implemented:
 
 - `yuj code "..."` (primary coding-agent entry path; current cwd default)
+- `yuj code --provider openai --model ... "..."`
+- `yuj code --provider anthropic --model ... "..."`
 - `yuj run --cwd ... --prompt-file ...`
 - `yuj smoke`
 - `yuj resume [session_id]`
@@ -98,6 +100,11 @@ Equivalent repo-local entrypoints:
   command/outcome) derived from trace events
 - `code`/`run` accept positional task text and default `--cwd` to the current
   directory for the common path
+- provider presets are available for `local`, `openai`, `anthropic`, `zai`,
+  `openrouter`, and `custom`; secrets are persisted as env references through
+  `--api-key-env`, not copied into session metadata
+- direct Anthropic uses a small Messages API adapter; OpenAI, Z.ai,
+  OpenRouter, local servers, and `custom` use the OpenAI-compatible client path
 - `smoke` acceptance checks: `calc.py` contains the fix, `tests/test_calc.py`
   passes, and no pending approval is outstanding; failure prints the repo
   path, session id, artifact dir, final status, and finish reason

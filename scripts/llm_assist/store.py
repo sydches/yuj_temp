@@ -365,6 +365,19 @@ class SessionStore:
                 (now, status, last_finish_reason, session_id),
             )
 
+    def update_session_config_paths(self, session_id: str, config_paths: list[Path]) -> None:
+        now = _utc_now()
+        config_paths_json = json.dumps([str(Path(p).resolve()) for p in config_paths])
+        with self._connect() as conn:
+            conn.execute(
+                """
+                update sessions
+                set updated_at = ?, config_paths_json = ?
+                where session_id = ?
+                """,
+                (now, config_paths_json, session_id),
+            )
+
 
 def _row_to_record(row: sqlite3.Row) -> SessionRecord:
     return SessionRecord(

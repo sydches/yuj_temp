@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import openai
+import requests
 
 from ..config import Config
 
@@ -42,23 +43,151 @@ def parse_args(raw) -> dict:
         return {}
 
 
+class _Obj:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+
+class _CompatResponse:
+    def __init__(self, raw: dict, *, message: _Obj, finish_reason: str, usage: _Obj):
+        self._raw = raw
+        self.choices = [_Obj(message=message, finish_reason=finish_reason)]
+        self.usage = usage
+
+    def model_dump_json(self) -> str:
+        return json.dumps(self._raw, default=str)
+
+
+def _to_anthropic_payload(payload: dict) -> dict:
+    system_parts: list[str] = []
+    messages: list[dict] = []
+    pending_tool_results: list[dict] = []
+
+    def flush_tool_results() -> None:
+        nonlocal pending_tool_results
+        if pending_tool_results:
+            _append_anthropic_message(messages, "user", pending_tool_results)
+            pending_tool_results = []
+
+    for msg in payload.get("messages", []):
+        role = msg.get("role")
+        content = msg.get("content")
+        if role == "system":
+            if content:
+                system_parts.append(str(content))
+            continue
+        if role == "tool":
+            pending_tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": msg.get("tool_call_id", ""),
+                "content": str(content or ""),
+            })
+            continue
+
+        flush_tool_results()
+        if role == "assistant":
+            blocks = []
+            if content:
+                blocks.append({"type": "text", "text": str(content)})
+            for tc in msg.get("tool_calls") or []:
+                func = tc.get("function", {})
+                blocks.append({
+                    "type": "tool_use",
+                    "id": tc.get("id", ""),
+                    "name": func.get("name", ""),
+                    "input": parse_args(func.get("arguments", "{}")),
+                })
+            _append_anthropic_message(messages, "assistant", blocks or [{"type": "text", "text": ""}])
+        elif role == "user":
+            _append_anthropic_message(
+                messages,
+                "user",
+                [{"type": "text", "text": str(content or "")}],
+            )
+
+    flush_tool_results()
+    out = {
+        "model": payload["model"],
+        "messages": messages,
+        "max_tokens": payload["max_tokens"],
+    }
+    if system_parts:
+        out["system"] = "\n\n".join(system_parts)
+    tools = payload.get("tools") or []
+    if tools:
+        out["tools"] = [_to_anthropic_tool(tool) for tool in tools]
+    return out
+
+
+def _append_anthropic_message(messages: list[dict], role: str, content: list[dict]) -> None:
+    if messages and messages[-1]["role"] == role:
+        messages[-1]["content"].extend(content)
+        return
+    messages.append({"role": role, "content": content})
+
+
+def _to_anthropic_tool(tool: dict) -> dict:
+    func = tool.get("function", {})
+    return {
+        "name": func.get("name", ""),
+        "description": func.get("description", ""),
+        "input_schema": func.get("parameters") or {"type": "object", "properties": {}},
+    }
+
+
+def _anthropic_to_openai_response(raw: dict) -> _CompatResponse:
+    text_parts: list[str] = []
+    tool_calls = []
+    for block in raw.get("content", []):
+        block_type = block.get("type")
+        if block_type == "text":
+            text_parts.append(block.get("text", ""))
+        elif block_type == "tool_use":
+            tool_calls.append(_Obj(
+                id=block.get("id", ""),
+                function=_Obj(
+                    name=block.get("name", ""),
+                    arguments=json.dumps(block.get("input") or {}),
+                ),
+            ))
+    stop_reason = raw.get("stop_reason") or "end_turn"
+    finish_reason = {
+        "tool_use": "tool_calls",
+        "max_tokens": "length",
+        "end_turn": "stop",
+        "stop_sequence": "stop",
+    }.get(stop_reason, stop_reason)
+    usage_raw = raw.get("usage") or {}
+    message = _Obj(
+        content="\n".join(part for part in text_parts if part) or None,
+        tool_calls=tool_calls,
+    )
+    usage = _Obj(
+        prompt_tokens=int(usage_raw.get("input_tokens") or 0),
+        completion_tokens=int(usage_raw.get("output_tokens") or 0),
+    )
+    return _CompatResponse(raw, message=message, finish_reason=finish_reason, usage=usage)
+
+
 class LlamaClient:
     """OpenAI SDK wrapper with profile-driven normalize/denormalize pipelines."""
 
     def __init__(self, cfg: Config, profile: Profile | None = None):
         self.cfg = cfg
         self.profile = profile
-        self.client = openai.OpenAI(
-            base_url=cfg.base_url,
-            api_key=cfg.api_key,
-            max_retries=0,
-            timeout=openai.Timeout(
-                connect=cfg.timeout_connect,
-                read=cfg.timeout_read,
-                write=cfg.timeout_read,
-                pool=cfg.timeout_connect,
-            ),
-        )
+        self.client = None
+        if cfg.provider != "anthropic":
+            self.client = openai.OpenAI(
+                base_url=cfg.base_url,
+                api_key=cfg.api_key,
+                max_retries=0,
+                timeout=openai.Timeout(
+                    connect=cfg.timeout_connect,
+                    read=cfg.timeout_read,
+                    write=cfg.timeout_read,
+                    pool=cfg.timeout_connect,
+                ),
+            )
         # Verbatim transcript: forensics file written at the HTTP boundary.
         # Set per task via set_transcript(); each HTTP call is one input/output
         # pair tagged only with a monotonic call counter and direction.
@@ -112,7 +241,11 @@ class LlamaClient:
             json.dumps(payload, default=str),
         )
         try:
-            resp = self.client.chat.completions.create(**payload)
+            if self.cfg.provider == "anthropic":
+                resp = self._call_anthropic_api(payload)
+            else:
+                assert self.client is not None
+                resp = self.client.chat.completions.create(**payload)
         except Exception as e:
             self._write_transcript(
                 f"turn {n:03d} output", f"{type(e).__name__}: {e}"
@@ -127,6 +260,19 @@ class LlamaClient:
 
     def health_check(self) -> list[str]:
         """Verify server is reachable via /v1/models. Raises on connection failure."""
+        if self.cfg.provider == "anthropic":
+            resp = requests.get(
+                f"{self.cfg.base_url.rstrip('/')}/models",
+                headers={
+                    "x-api-key": self.cfg.api_key,
+                    "anthropic-version": "2023-06-01",
+                },
+                timeout=(self.cfg.timeout_connect, self.cfg.timeout_read),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return [str(m["id"]) for m in data.get("data", []) if "id" in m]
+        assert self.client is not None
         resp = self.client.models.list()
         return [m.id for m in resp.data]
 
@@ -137,8 +283,8 @@ class LlamaClient:
         call, not a hardware query. The server already resolved VRAM constraints
         when it started.
         """
-        import requests
-
+        if self.cfg.provider == "anthropic":
+            return None
         base = self.cfg.base_url.rstrip("/v1").rstrip("/")
         for endpoint in ("/props", "/slots"):
             try:
@@ -158,6 +304,22 @@ class LlamaClient:
             except Exception:
                 continue
         return None
+
+    def _call_anthropic_api(self, payload: dict):
+        """Call Anthropic Messages and adapt the response to the OpenAI SDK shape."""
+        anthropic_payload = _to_anthropic_payload(payload)
+        resp = requests.post(
+            f"{self.cfg.base_url.rstrip('/')}/messages",
+            headers={
+                "x-api-key": self.cfg.api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json=anthropic_payload,
+            timeout=(self.cfg.timeout_connect, self.cfg.timeout_read),
+        )
+        resp.raise_for_status()
+        return _anthropic_to_openai_response(resp.json())
 
     def chat(
         self, messages: list[dict], tools: list[dict], turn: int = 0

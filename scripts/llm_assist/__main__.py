@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -30,6 +31,30 @@ from .store import AmbiguousSessionRefError, SessionLockedError, SessionStore
 
 CLI_NAME = "yuj"
 _LATEST_SESSION_TOKENS = {"latest", "last"}
+_PROVIDER_PRESETS = {
+    "local": {"provider": "openai-compatible"},
+    "openai": {
+        "provider": "openai-compatible",
+        "base_url": "https://api.openai.com/v1",
+        "api_key": "$ENV:OPENAI_API_KEY",
+    },
+    "openrouter": {
+        "provider": "openai-compatible",
+        "base_url": "https://openrouter.ai/api/v1",
+        "api_key": "$ENV:OPENROUTER_API_KEY",
+    },
+    "zai": {
+        "provider": "openai-compatible",
+        "base_url": "https://api.z.ai/api/paas/v4",
+        "api_key": "$ENV:ZAI_API_KEY",
+    },
+    "anthropic": {
+        "provider": "anthropic",
+        "base_url": "https://api.anthropic.com/v1",
+        "api_key": "$ENV:ANTHROPIC_API_KEY",
+    },
+    "custom": {"provider": "openai-compatible"},
+}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -54,6 +79,19 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--prompt-text", help="literal task prompt")
         p.add_argument("--prompt-file", type=Path, help="read task prompt from file")
         p.add_argument("--model", "-m", help="model name or short alias")
+        p.add_argument(
+            "--provider",
+            choices=sorted(_PROVIDER_PRESETS),
+            help="model supplier preset: local, openai, anthropic, zai, openrouter, or custom",
+        )
+        p.add_argument(
+            "--base-url",
+            help="OpenAI-compatible or Anthropic API base URL; overrides provider preset",
+        )
+        p.add_argument(
+            "--api-key-env",
+            help="environment variable containing the API key; stored as an env reference, not the key",
+        )
         p.add_argument("--config", "-c", type=Path, action="append", default=[],
                        help="extra config TOML overlay; pass multiple times")
         p.add_argument("--system-prompt", type=Path, default=None,
@@ -77,6 +115,19 @@ def main(argv: list[str] | None = None) -> int:
     smoke_parser.add_argument("--assist-home", type=Path, default=None,
                               help="assistant artifact root (default: normal assist home)")
     smoke_parser.add_argument("--model", "-m", help="preferred model alias or exact model id")
+    smoke_parser.add_argument(
+        "--provider",
+        choices=sorted(_PROVIDER_PRESETS),
+        help="model supplier preset: local, openai, anthropic, zai, openrouter, or custom",
+    )
+    smoke_parser.add_argument(
+        "--base-url",
+        help="OpenAI-compatible or Anthropic API base URL; overrides provider preset",
+    )
+    smoke_parser.add_argument(
+        "--api-key-env",
+        help="environment variable containing the API key; stored as an env reference, not the key",
+    )
     smoke_parser.add_argument("--config", "-c", type=Path, action="append", default=[],
                               help="extra config TOML overlay; pass multiple times")
     smoke_parser.add_argument("--system-prompt", type=Path, default=None,
@@ -153,7 +204,12 @@ def cmd_run(args) -> int:
     prompt_text, prompt_source = _resolve_prompt_input(args)
 
     store = SessionStore()
-    model, served = _resolve_model_or_exit(args.config, requested_model=args.model)
+    transport_overrides = _transport_overrides_from_args(args)
+    model, served = _resolve_model_or_exit(
+        args.config,
+        requested_model=args.model,
+        config_overrides=transport_overrides,
+    )
     record = create_session(
         store,
         cwd=args.cwd.resolve(),
@@ -163,6 +219,12 @@ def cmd_run(args) -> int:
         config_paths=args.config,
         system_prompt_path=args.system_prompt.resolve() if args.system_prompt else None,
         context_mode=args.context,
+    )
+    record = _persist_session_config_overlay(
+        store,
+        record,
+        base_config_paths=args.config,
+        transport_overrides=transport_overrides,
     )
     _print_session_start(
         record,
@@ -181,7 +243,12 @@ def cmd_run(args) -> int:
 
 def cmd_smoke(args) -> int:
     smoke_root = prepare_smoke_repo(args.root)
-    model, served = _resolve_smoke_model_or_exit(args.config, requested_model=args.model)
+    transport_overrides = _transport_overrides_from_args(args)
+    model, served = _resolve_smoke_model_or_exit(
+        args.config,
+        requested_model=args.model,
+        config_overrides=transport_overrides,
+    )
     prompt_text = (
         "Fix the bug in calc.py so tests/test_calc.py passes. "
         "Make the smallest correct code change, run the relevant test, then finish."
@@ -196,6 +263,12 @@ def cmd_smoke(args) -> int:
         config_paths=args.config,
         system_prompt_path=args.system_prompt.resolve() if args.system_prompt else None,
         context_mode=args.context,
+    )
+    record = _persist_session_config_overlay(
+        store,
+        record,
+        base_config_paths=args.config,
+        transport_overrides=transport_overrides,
     )
     print(f"smoke_repo: {smoke_root}")
     _print_session_start(
@@ -467,6 +540,55 @@ def _resolve_prompt_input(args) -> tuple[str, str]:
     return " ".join(args.task).strip(), "inline-positional"
 
 
+def _transport_overrides_from_args(args) -> dict:
+    provider = getattr(args, "provider", None)
+    base_url = getattr(args, "base_url", None)
+    api_key_env = getattr(args, "api_key_env", None)
+    if not provider and not base_url and not api_key_env:
+        return {}
+    if provider == "custom" and not base_url:
+        raise SystemExit("--provider custom requires --base-url")
+
+    overrides = dict(_PROVIDER_PRESETS.get(provider or "custom", {}))
+    if base_url:
+        overrides["base_url"] = base_url
+    if api_key_env:
+        overrides["api_key"] = f"$ENV:{api_key_env}"
+    if provider and provider != "local" and overrides.get("api_key", "").startswith("$ENV:"):
+        env_name = overrides["api_key"].split(":", 1)[1]
+        if env_name not in os.environ:
+            raise SystemExit(
+                f"--provider {provider} expects {env_name}; set it or pass --api-key-env"
+            )
+    return overrides
+
+
+def _persist_session_config_overlay(
+    store: SessionStore,
+    record,
+    *,
+    base_config_paths: list[Path],
+    transport_overrides: dict,
+):
+    if not transport_overrides:
+        return record
+    overlay_path = record.artifact_path / "provider.toml"
+    overlay_path.parent.mkdir(parents=True, exist_ok=True)
+    overlay_path.write_text(_render_provider_overlay(transport_overrides))
+    config_paths = [*base_config_paths, overlay_path]
+    store.update_session_config_paths(record.session_id, config_paths)
+    return store.get_session(record.session_id) or record
+
+
+def _render_provider_overlay(overrides: dict) -> str:
+    lines = ["[server]"]
+    for key in ("provider", "base_url", "api_key"):
+        if key in overrides and overrides[key] is not None:
+            value = str(overrides[key]).replace("\\", "\\\\").replace('"', '\\"')
+            lines.append(f'{key} = "{value}"')
+    return "\n".join(lines) + "\n"
+
+
 def _print_session_start(
     record,
     *,
@@ -536,9 +658,18 @@ def _handle_keyboard_interrupt(store: SessionStore, record) -> int:
     return 130
 
 
-def _resolve_model_or_exit(config_paths: list[Path], *, requested_model: str | None):
+def _resolve_model_or_exit(
+    config_paths: list[Path],
+    *,
+    requested_model: str | None,
+    config_overrides: dict | None = None,
+):
     try:
-        return resolve_served_model(config_paths, requested_model=requested_model)
+        return resolve_served_model(
+            config_paths,
+            requested_model=requested_model,
+            config_overrides=config_overrides,
+        )
     except Exception as exc:
         friendly = _friendly_model_resolution_error(exc)
         if friendly is None:
@@ -546,9 +677,18 @@ def _resolve_model_or_exit(config_paths: list[Path], *, requested_model: str | N
         raise SystemExit(friendly) from exc
 
 
-def _resolve_smoke_model_or_exit(config_paths: list[Path], *, requested_model: str | None):
+def _resolve_smoke_model_or_exit(
+    config_paths: list[Path],
+    *,
+    requested_model: str | None,
+    config_overrides: dict | None = None,
+):
     try:
-        return resolve_smoke_model(config_paths, requested_model=requested_model)
+        return resolve_smoke_model(
+            config_paths,
+            requested_model=requested_model,
+            config_overrides=config_overrides,
+        )
     except Exception as exc:
         friendly = _friendly_model_resolution_error(exc)
         if friendly is None:
@@ -558,6 +698,8 @@ def _resolve_smoke_model_or_exit(config_paths: list[Path], *, requested_model: s
 
 def _friendly_model_resolution_error(exc: Exception) -> str | None:
     base_url = get_server_base_url()
+    if isinstance(exc, KeyError) and "environment variable" in str(exc):
+        return str(exc)
     if exc.__class__.__name__ in {"APIConnectionError", "APITimeoutError"}:
         return (
             f"could not reach the local model server at {base_url} while resolving /v1/models; "

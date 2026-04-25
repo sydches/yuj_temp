@@ -100,6 +100,7 @@ Minimum queryable surface:
 | Command | Effect |
 |---|---|
 | `yuj code "..."` | Start a session in the current directory from positional task text |
+| `yuj code --provider <name> --model <id> "..."` | Start against a named supplier preset |
 | `yuj run --cwd <path> --prompt-file <file>` | Start from a prompt file |
 | `yuj run --cwd <path> --prompt-text ...` | Explicit flag-based start path |
 | `yuj resume [session_id]` | Resume an existing session; default is latest resumable session |
@@ -121,12 +122,21 @@ Implemented and useful in the current staging shell:
 
 Practical notes:
 
-- `run` and `smoke` both reconcile the requested model against `/v1/models`
-  via a shared `resolve_served_model` helper. Alias-resolved ids that are not
-  served verbatim fall back to the first served id. The exact served id is
-  persisted in session metadata.
+- `run` and `smoke` both reconcile the model against `/v1/models` via a shared
+  `resolve_served_model` helper. Local/default runs may fall back to the first
+  served id when an alias is not served verbatim. Hosted provider runs with an
+  explicit `--model` keep the requested model id even if `/models` is
+  incomplete. The resolved model id is persisted in session metadata.
 - `code` and `run` accept positional task text and default `--cwd` to the
   current working directory for the common path.
+- `code`, `run`, and `smoke` accept supplier presets: `local`, `openai`,
+  `anthropic`, `zai`, `openrouter`, and `custom`. Preset transport settings are
+  written as a session-local config overlay so resume uses the same supplier.
+- API keys are persisted as env references (`--api-key-env NAME`) instead of
+  literal secrets. Provider defaults use `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+  `ZAI_API_KEY`, and `OPENROUTER_API_KEY`.
+- Direct Anthropic uses a Messages API adapter. The other provider presets use
+  the existing OpenAI-compatible chat-completions path.
 - `run` and `resume` print live tool-call progress to stdout while the session
   runs by tailing `.trace.jsonl`. No engine changes are required.
 - `run`, `resume`, and `smoke` print a startup banner with session id, cwd,

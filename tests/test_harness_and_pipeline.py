@@ -64,6 +64,81 @@ class TestConfig:
         cfg = load_config(overrides={"model": "test-override"})
         assert cfg.model == "test-override"
 
+    def test_load_config_resolves_api_key_env_reference(self, monkeypatch):
+        monkeypatch.setenv("YUJ_TEST_API_KEY", "resolved-secret")
+        cfg = load_config(overrides={"api_key": "$ENV:YUJ_TEST_API_KEY"})
+        assert cfg.api_key == "resolved-secret"
+
+    def test_load_config_reports_missing_api_key_env_reference(self, monkeypatch):
+        monkeypatch.delenv("YUJ_TEST_API_KEY", raising=False)
+        with pytest.raises(KeyError, match="YUJ_TEST_API_KEY"):
+            load_config(overrides={"api_key": "$ENV:YUJ_TEST_API_KEY"})
+
+    def test_anthropic_adapter_preserves_tool_turns(self):
+        from scripts.llm_solver.server.client import (
+            _anthropic_to_openai_response,
+            _to_anthropic_payload,
+        )
+
+        payload = {
+            "model": "claude-sonnet-4-5",
+            "messages": [
+                {"role": "system", "content": "Use tools."},
+                {"role": "user", "content": "Read calc.py"},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": "call_0_0",
+                        "type": "function",
+                        "function": {
+                            "name": "read",
+                            "arguments": '{"path": "calc.py"}',
+                        },
+                    }],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_0_0",
+                    "content": "def add(a, b): return a - b",
+                },
+            ],
+            "tools": [{
+                "type": "function",
+                "function": {
+                    "name": "read",
+                    "description": "Read a file",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"path": {"type": "string"}},
+                    },
+                },
+            }],
+            "max_tokens": 128,
+        }
+
+        anthropic_payload = _to_anthropic_payload(payload)
+        assert anthropic_payload["system"] == "Use tools."
+        assert anthropic_payload["tools"][0]["input_schema"]["properties"]["path"]["type"] == "string"
+        assert anthropic_payload["messages"][1]["content"][0]["type"] == "tool_use"
+        assert anthropic_payload["messages"][2]["content"][0]["type"] == "tool_result"
+
+        compat = _anthropic_to_openai_response({
+            "content": [{
+                "type": "tool_use",
+                "id": "toolu_1",
+                "name": "edit",
+                "input": {"path": "calc.py", "old_str": "-", "new_str": "+"},
+            }],
+            "stop_reason": "tool_use",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        })
+        assert compat.choices[0].finish_reason == "tool_calls"
+        tc = compat.choices[0].message.tool_calls[0]
+        assert tc.id == "toolu_1"
+        assert tc.function.name == "edit"
+        assert json.loads(tc.function.arguments)["path"] == "calc.py"
+
     def test_get_sdk_config(self):
         sdk = get_sdk_config()
         assert "tools" in sdk or "default_model" in sdk

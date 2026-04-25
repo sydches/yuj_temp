@@ -469,6 +469,28 @@ def test_resolve_served_model_falls_back_to_first_served_id():
     assert served[0] == "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
 
 
+def test_resolve_served_model_honors_explicit_remote_model_when_models_list_differs():
+    with patch("scripts.llm_assist.runner.load_config", return_value=object()), \
+            patch("scripts.llm_assist.runner._load_profile", return_value=None), \
+            patch("scripts.llm_assist.runner.LlamaClient") as client_cls:
+        client_cls.return_value.health_check.return_value = [
+            "provider-default-model",
+        ]
+
+        model, served = resolve_served_model(
+            [],
+            requested_model="provider/exact-model",
+            config_overrides={
+                "provider": "openai-compatible",
+                "base_url": "https://openrouter.ai/api/v1",
+                "api_key": "$ENV:OPENROUTER_API_KEY",
+            },
+        )
+
+    assert model == "provider/exact-model"
+    assert served == ["provider-default-model"]
+
+
 def test_trace_follower_prints_new_events(tmp_path: Path):
     artifact_dir = tmp_path / "session"
     artifact_dir.mkdir(parents=True)
@@ -809,6 +831,77 @@ def test_run_persists_exact_served_model_id(tmp_path, capsys):
     sessions = store.list_sessions(limit=1)
     assert sessions, "expected a persisted session record"
     assert sessions[0].model == "exact-served-id.gguf"
+
+
+def test_run_provider_preset_persists_session_overlay(tmp_path, monkeypatch):
+    store = SessionStore(tmp_path / "assist-home")
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    monkeypatch.setenv("OPENROUTER_API_KEY", "secret-value")
+    seen_config_paths: list[str] = []
+
+    def fake_run_session(store_obj, record, *, resume):
+        seen_config_paths.extend(record.config_paths)
+        artifact_dir = Path(record.artifact_dir)
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        (artifact_dir / ".trace.jsonl").write_text(
+            json.dumps({
+                "event": "session_end",
+                "session_number": 1,
+                "finish_reason": "stop",
+                "turns": 1,
+            }) + "\n"
+        )
+        store_obj.update_session(record.session_id, status="completed", last_finish_reason="stop")
+        return True, "stop"
+
+    with patch("scripts.llm_assist.__main__.SessionStore", return_value=store), \
+            patch(
+                "scripts.llm_assist.__main__.resolve_served_model",
+                return_value=("openrouter/model", ["openrouter/model"]),
+            ) as resolve_mock, \
+            patch("scripts.llm_assist.__main__.run_session", side_effect=fake_run_session):
+        rc = main([
+            "run",
+            "--cwd", str(work_dir),
+            "--prompt-text", "do it",
+            "--provider", "openrouter",
+            "--model", "openrouter/model",
+        ])
+
+    assert rc == 0
+    resolve_mock.assert_called_once()
+    assert resolve_mock.call_args.kwargs["config_overrides"] == {
+        "provider": "openai-compatible",
+        "base_url": "https://openrouter.ai/api/v1",
+        "api_key": "$ENV:OPENROUTER_API_KEY",
+    }
+    assert seen_config_paths, "expected persisted provider overlay in config paths"
+    overlay = Path(seen_config_paths[-1])
+    assert overlay.name == "provider.toml"
+    text = overlay.read_text()
+    assert 'base_url = "https://openrouter.ai/api/v1"' in text
+    assert 'api_key = "$ENV:OPENROUTER_API_KEY"' in text
+    assert "secret-value" not in text
+
+
+def test_custom_provider_requires_base_url(tmp_path):
+    store = SessionStore(tmp_path / "assist-home")
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+
+    with patch("scripts.llm_assist.__main__.SessionStore", return_value=store):
+        try:
+            main([
+                "run",
+                "--cwd", str(work_dir),
+                "--prompt-text", "do it",
+                "--provider", "custom",
+            ])
+        except SystemExit as exc:
+            assert "--provider custom requires --base-url" in str(exc)
+        else:
+            raise AssertionError("expected SystemExit")
 
 
 def test_show_without_id_prefers_latest_session_in_current_cwd(tmp_path, capsys, monkeypatch):
