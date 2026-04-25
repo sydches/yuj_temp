@@ -83,6 +83,12 @@ Equivalent repo-local entrypoints:
 - sessions are locked while a run/resume is active; `sessions` marks those
   with `[locked]`, `show` reports the current lock state, and `resume` refuses
   if another terminal already owns the session
+- explicit session references accept the full id, the 8-char `session_ref`,
+  or any unique prefix
+- `Ctrl-C` pauses a session cleanly as `interrupted`, leaves it resumable, and
+  is reflected in `show` via a shell-owned interrupt marker
+- model-resolution failures now surface as short operator messages naming the
+  base URL and `/v1/models` instead of raw tracebacks
 - `code`/`run` accept positional task text and default `--cwd` to the current
   directory for the common path
 - `smoke` acceptance checks: `calc.py` contains the fix, `tests/test_calc.py`

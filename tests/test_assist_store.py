@@ -7,6 +7,7 @@ from scripts.llm_assist.progress import TraceFollower
 from scripts.llm_assist.runner import (
     approval_request_path,
     load_approval_request,
+    load_interrupt_marker,
     prepare_smoke_repo,
     resolve_served_model,
     resolve_smoke_model,
@@ -192,10 +193,12 @@ def test_show_command_prints_session_details_and_trace_tail(tmp_path, capsys):
     captured = capsys.readouterr()
     assert rc == 0
     assert f"session_id: {record.session_id}" in captured.out
+    assert f"session_ref: {record.short_id}" in captured.out
     assert "status: completed" in captured.out
     assert "finish_reason: stop" in captured.out
     assert "approval: none" in captured.out
     assert "lock: none" in captured.out
+    assert "interrupt: none" in captured.out
     assert "recent_turns:" in captured.out
     assert "turn 0 (session 1)" in captured.out
     assert "reasoning: Read the buggy implementation first." in captured.out
@@ -235,6 +238,7 @@ def test_approve_command_marks_pending_request_approved(tmp_path, capsys):
     assert approval is not None
     assert approval["status"] == "approved"
     assert f"approved: {record.session_id}" in captured.out
+    assert f"session_ref: {record.short_id}" in captured.out
 
 
 def test_resume_rejects_pending_approval_request(tmp_path):
@@ -326,9 +330,11 @@ def test_show_command_prints_pending_approval_request(tmp_path, capsys):
     captured = capsys.readouterr()
     assert rc == 0
     assert "status: approval_pending" in captured.out
+    assert f"session_ref: {record.short_id}" in captured.out
     assert "approval: pending" in captured.out
     assert "approval_reason: destructive file deletion via rm" in captured.out
     assert "approval_action: bash(cmd='rm -rf build')" in captured.out
+    assert "interrupt: none" in captured.out
 
 
 def test_show_command_reports_running_for_resumed_active_session(tmp_path, capsys):
@@ -366,6 +372,7 @@ def test_show_command_reports_running_for_resumed_active_session(tmp_path, capsy
     captured = capsys.readouterr()
     assert rc == 0
     assert "status: running" in captured.out
+    assert f"session_ref: {record.short_id}" in captured.out
     assert "current_session: 2" in captured.out
     assert "finish_reason: approval_required" not in captured.out
 
@@ -402,6 +409,7 @@ def test_show_command_preserves_completed_finish_reason(tmp_path, capsys):
     captured = capsys.readouterr()
     assert rc == 0
     assert "status: completed" in captured.out
+    assert f"session_ref: {record.short_id}" in captured.out
     assert "finish_reason: stop" in captured.out
     assert "current_session: 1" in captured.out
 
@@ -610,6 +618,7 @@ def test_cmd_run_prints_progress_before_final_result(tmp_path, capsys):
     idx_progress = captured.out.find("tool_call turn=0 bash")
     idx_status = captured.out.find("status: completed")
     idx_start = captured.out.find("starting:")
+    assert "ref:" in captured.out
     assert idx_start != -1
     assert idx_progress != -1 and idx_status != -1
     assert idx_start < idx_progress
@@ -617,6 +626,47 @@ def test_cmd_run_prints_progress_before_final_result(tmp_path, capsys):
     sessions = store.list_sessions(limit=1)
     assert sessions, "expected a persisted session record"
     assert store.get_session_lock(sessions[0].session_id) is None
+
+
+def test_cmd_run_keyboard_interrupt_marks_session_interrupted_and_resumable(tmp_path, capsys):
+    store = SessionStore(tmp_path / "assist-home")
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+
+    def fake_run_session(store_obj, record, *, resume):
+        artifact_dir = Path(record.artifact_dir)
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        (artifact_dir / ".trace.jsonl").write_text(
+            json.dumps({
+                "event": "session_start",
+                "session_number": 1,
+            }) + "\n"
+        )
+        raise KeyboardInterrupt
+
+    with patch("scripts.llm_assist.__main__.SessionStore", return_value=store), \
+            patch(
+                "scripts.llm_assist.__main__.resolve_served_model",
+                return_value=("exact-served.gguf", ["exact-served.gguf"]),
+            ), \
+            patch("scripts.llm_assist.__main__.run_session", side_effect=fake_run_session):
+        rc = main([
+            "run",
+            "--cwd", str(work_dir),
+            "--prompt-text", "do it",
+        ])
+
+    captured = capsys.readouterr()
+    sessions = store.list_sessions(limit=1)
+    assert rc == 130
+    assert sessions, "expected a persisted session record"
+    record = sessions[0]
+    assert record.status == "paused"
+    assert record.last_finish_reason == "interrupted"
+    assert "interrupted: session paused cleanly" in captured.out
+    assert f"resume with: yuj resume {record.short_id}" in captured.out
+    assert load_interrupt_marker(Path(record.artifact_dir)) is not None
+    assert store.get_session_lock(record.session_id) is None
 
 
 def test_code_alias_routes_to_run(tmp_path, capsys):
@@ -837,6 +887,75 @@ def test_show_without_id_prefers_active_session_over_newer_session_in_current_cw
     assert second.session_id not in captured.out
 
 
+def test_show_command_reports_interrupted_session_from_marker(tmp_path, capsys):
+    store = SessionStore(tmp_path)
+    record = store.create_session(
+        cwd=tmp_path / "work",
+        model="qwen3-8b",
+        prompt_text="Fix the failing test",
+        prompt_source="inline",
+        context_mode="full",
+        system_prompt_path=None,
+        config_paths=[],
+    )
+    store.update_session(record.session_id, status="paused", last_finish_reason="interrupted")
+    artifact_dir = Path(record.artifact_dir)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir / ".trace.jsonl").write_text(
+        json.dumps({
+            "event": "session_start",
+            "session_number": 1,
+        }) + "\n"
+    )
+    (artifact_dir / "shell_interrupt.json").write_text(
+        json.dumps({
+            "finish_reason": "interrupted",
+            "interrupted_at": "2026-04-25T00:00:00+00:00",
+        }) + "\n"
+    )
+
+    with patch("scripts.llm_assist.__main__.SessionStore", return_value=store):
+        rc = main(["show", record.session_id, "--trace-lines", "0", "--turns", "0"])
+
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "status: paused" in captured.out
+    assert f"session_ref: {record.short_id}" in captured.out
+    assert "finish_reason: interrupted" in captured.out
+    assert "interrupt: interrupted at 2026-04-25T00:00:00+00:00" in captured.out
+
+
+def test_show_accepts_short_session_ref(tmp_path, capsys):
+    store = SessionStore(tmp_path)
+    record = store.create_session(
+        cwd=tmp_path / "work",
+        model="qwen3-8b",
+        prompt_text="Fix the failing test",
+        prompt_source="inline",
+        context_mode="full",
+        system_prompt_path=None,
+        config_paths=[],
+    )
+    artifact_dir = Path(record.artifact_dir)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir / ".trace.jsonl").write_text(
+        json.dumps({
+            "event": "session_end",
+            "session_number": 1,
+            "finish_reason": "stop",
+            "turns": 1,
+        }) + "\n"
+    )
+
+    with patch("scripts.llm_assist.__main__.SessionStore", return_value=store):
+        rc = main(["show", record.short_id, "--trace-lines", "0", "--turns", "0"])
+
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert f"session_id: {record.session_id}" in captured.out
+    assert f"session_ref: {record.short_id}" in captured.out
+
+
 def test_resume_without_id_prefers_latest_resumable_session_in_current_cwd(tmp_path, monkeypatch):
     store = SessionStore(tmp_path / "assist-home")
     repo_a = tmp_path / "repo-a"
@@ -956,6 +1075,46 @@ def test_resume_without_id_prefers_active_resumable_session_over_newer_resumable
     assert selected == [first.session_id]
 
 
+def test_resume_accepts_short_session_ref(tmp_path):
+    store = SessionStore(tmp_path / "assist-home")
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    record = store.create_session(
+        cwd=work_dir,
+        model="paused-model",
+        prompt_text="resume me",
+        prompt_source="inline",
+        context_mode="full",
+        system_prompt_path=None,
+        config_paths=[],
+    )
+    store.update_session(record.session_id, status="paused", last_finish_reason="max_turns")
+
+    selected: list[str] = []
+
+    def fake_run_session(store_obj, chosen, *, resume):
+        selected.append(chosen.session_id)
+        artifact_dir = Path(chosen.artifact_dir)
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        (artifact_dir / ".trace.jsonl").write_text(
+            json.dumps({
+                "event": "session_end",
+                "session_number": 2,
+                "finish_reason": "stop",
+                "turns": 1,
+            }) + "\n"
+        )
+        store_obj.update_session(chosen.session_id, status="completed", last_finish_reason="stop")
+        return True, "stop"
+
+    with patch("scripts.llm_assist.__main__.SessionStore", return_value=store), \
+            patch("scripts.llm_assist.__main__.run_session", side_effect=fake_run_session):
+        rc = main(["resume", record.short_id])
+
+    assert rc == 0
+    assert selected == [record.session_id]
+
+
 def test_approve_without_id_prefers_latest_pending_request_in_current_cwd(tmp_path, capsys, monkeypatch):
     store = SessionStore(tmp_path / "assist-home")
     repo_a = tmp_path / "repo-a"
@@ -1053,6 +1212,33 @@ def test_sessions_marks_active_session_and_current_cwd(tmp_path, capsys, monkeyp
     assert "[active locked cwd]" in captured.out
     assert f"{remote_record.session_id}  created" in captured.out
     assert "[active]" in captured.out
+
+
+def test_run_model_resolution_failure_exits_cleanly(tmp_path):
+    store = SessionStore(tmp_path / "assist-home")
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+
+    class APIConnectionError(Exception):
+        pass
+
+    with patch("scripts.llm_assist.__main__.SessionStore", return_value=store), \
+            patch(
+                "scripts.llm_assist.__main__.resolve_served_model",
+                side_effect=APIConnectionError("boom"),
+            ):
+        try:
+            main([
+                "run",
+                "--cwd", str(work_dir),
+                "--prompt-text", "do it",
+            ])
+        except SystemExit as exc:
+            message = str(exc)
+            assert "could not reach the local model server" in message
+            assert "/v1/models" in message
+        else:
+            raise AssertionError("expected SystemExit")
 
 
 def test_smoke_command_fails_when_repo_not_fixed(tmp_path, capsys):

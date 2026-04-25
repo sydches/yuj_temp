@@ -77,6 +77,8 @@ Ease-of-use defaults:
 - `yuj sessions` marks active sessions with `[active]` and the current repo
   with `[cwd]`
 - active runs hold a session lock; `yuj sessions` marks those with `[locked]`
+- explicit session references accept the full id, the 8-char `session_ref`,
+  or any unique prefix
 
 `run` and `smoke` reconcile the requested model against `/v1/models` at session
 creation: alias-resolved ids that are not served verbatim fall back to the
@@ -94,6 +96,14 @@ the operator does not need to wait for completion just to learn what started.
 Only one terminal may own a session at a time. If you try to resume a locked
 session from another terminal, `yuj` refuses cleanly and shows the owning pid,
 host, and acquisition time. `yuj show` also prints the current lock state.
+
+If you interrupt `yuj` with `Ctrl-C`, the session is marked `interrupted`,
+left resumable, and surfaced by `yuj show` as a paused session rather than a
+ghost running session.
+
+If the local model server cannot be reached during model resolution, `yuj`
+fails with a short operator message naming the base URL and `/v1/models`
+instead of dumping a Python traceback.
 
 If a risky assistant-mode bash command is blocked, the session pauses with an
 approval request. Assistant-mode classifier coverage: `rm`, `git reset --hard`,

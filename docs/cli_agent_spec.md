@@ -52,6 +52,9 @@ Already implemented:
 - latest-session defaults for `show` / `resume` / `approve`
 - per-cwd active session pointers used before latest-session fallback
 - single-owner session locking for active runs and resumes
+- clean interrupted-session handling with resumable paused state
+- concise model-resolution failure messages for unreachable local servers
+- short deterministic session references via `session_ref` and unique prefixes
 - startup banner before live trace output
 
 Already good enough:

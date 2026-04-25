@@ -7,12 +7,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ..llm_solver.config import get_server_base_url
 from .progress import TraceFollower
 from .runner import (
     approval_request_path,
     create_session,
     derive_live_state,
     load_approval_request,
+    load_interrupt_marker,
+    mark_session_interrupted,
     prepare_smoke_repo,
     resolve_served_model,
     resolve_smoke_model,
@@ -22,7 +25,7 @@ from .runner import (
     session_turn_count,
     session_turn_tail,
 )
-from .store import SessionLockedError, SessionStore
+from .store import AmbiguousSessionRefError, SessionLockedError, SessionStore
 
 CLI_NAME = "yuj"
 _LATEST_SESSION_TOKENS = {"latest", "last"}
@@ -135,7 +138,7 @@ def cmd_run(args) -> int:
     prompt_text, prompt_source = _resolve_prompt_input(args)
 
     store = SessionStore()
-    model, served = resolve_served_model(args.config, requested_model=args.model)
+    model, served = _resolve_model_or_exit(args.config, requested_model=args.model)
     record = create_session(
         store,
         cwd=args.cwd.resolve(),
@@ -151,8 +154,11 @@ def cmd_run(args) -> int:
         action="starting",
         served_models=served,
     )
-    with _session_lock(store, record), TraceFollower(record.artifact_path):
-        success, finish_reason = run_session(store, record, resume=False)
+    try:
+        with _session_lock(store, record), TraceFollower(record.artifact_path):
+            success, finish_reason = run_session(store, record, resume=False)
+    except KeyboardInterrupt:
+        return _handle_keyboard_interrupt(store, record)
     refreshed = store.get_session(record.session_id)
     _print_session_result(refreshed or record, success, finish_reason)
     return 0 if success else 1
@@ -160,7 +166,7 @@ def cmd_run(args) -> int:
 
 def cmd_smoke(args) -> int:
     smoke_root = prepare_smoke_repo(args.root)
-    model, served = resolve_smoke_model(args.config, requested_model=args.model)
+    model, served = _resolve_smoke_model_or_exit(args.config, requested_model=args.model)
     prompt_text = (
         "Fix the bug in calc.py so tests/test_calc.py passes. "
         "Make the smallest correct code change, run the relevant test, then finish."
@@ -182,8 +188,11 @@ def cmd_smoke(args) -> int:
         action="starting smoke session",
         served_models=served,
     )
-    with _session_lock(store, record):
-        success, finish_reason = run_session(store, record, resume=False)
+    try:
+        with _session_lock(store, record):
+            success, finish_reason = run_session(store, record, resume=False)
+    except KeyboardInterrupt:
+        return _handle_keyboard_interrupt(store, record)
     refreshed = store.get_session(record.session_id)
     final_record = refreshed or record
     _print_session_result(final_record, success, finish_reason)
@@ -248,8 +257,11 @@ def cmd_resume(args) -> int:
         return 0
     store.set_active_session(record.cwd, record.session_id)
     _print_session_start(record, action="resuming")
-    with _session_lock(store, record), TraceFollower(record.artifact_path):
-        success, finish_reason = run_session(store, record, resume=True)
+    try:
+        with _session_lock(store, record), TraceFollower(record.artifact_path):
+            success, finish_reason = run_session(store, record, resume=True)
+    except KeyboardInterrupt:
+        return _handle_keyboard_interrupt(store, record)
     refreshed = store.get_session(record.session_id)
     _print_session_result(refreshed or record, success, finish_reason)
     return 0 if success else 1
@@ -275,7 +287,7 @@ def cmd_sessions(args) -> int:
         flag_text = f" [{' '.join(flags)}]" if flags else ""
         print(
             f"{record.session_id}  {record.status:9s}  "
-            f"model={record.model}  cwd={record.cwd}{flag_text}"
+            f"ref={record.short_id}  model={record.model}  cwd={record.cwd}{flag_text}"
         )
         if record.last_finish_reason:
             print(f"    last_finish_reason={record.last_finish_reason}")
@@ -291,8 +303,9 @@ def cmd_approve(args) -> int:
     approval["status"] = "approved"
     save_approval_request(record.artifact_path, approval)
     print(f"approved: {record.session_id}")
+    print(f"session_ref: {record.short_id}")
     print(f"request_file: {approval_request_path(record.artifact_path)}")
-    print(f"resume with: {CLI_NAME} resume {record.session_id}")
+    print(f"resume with: {CLI_NAME} resume {record.short_id}")
     return 0
 
 
@@ -304,6 +317,7 @@ def cmd_show(args) -> int:
     status = live.status or record.status
     finish_reason = live.finish_reason if live.status else record.last_finish_reason
     print(f"session_id: {record.session_id}")
+    print(f"session_ref: {record.short_id}")
     print(f"status: {status}")
     if live.session_number:
         print(f"current_session: {live.session_number}")
@@ -321,6 +335,7 @@ def cmd_show(args) -> int:
     print(f"turns: {turns}")
     approval = load_approval_request(record.artifact_path)
     lock = store.get_session_lock(record.session_id)
+    interrupt = load_interrupt_marker(record.artifact_path)
     if approval is None:
         print("approval: none")
     else:
@@ -331,6 +346,10 @@ def cmd_show(args) -> int:
         print("lock: none")
     else:
         print(f"lock: pid={lock.owner_pid} host={lock.owner_host} since={lock.acquired_at}")
+    if interrupt is None:
+        print("interrupt: none")
+    else:
+        print(f"interrupt: {interrupt.get('finish_reason')} at {interrupt.get('interrupted_at')}")
     turn_lines = session_turn_tail(record.artifact_path, limit=args.turns)
     if not turn_lines:
         print("recent_turns: (empty)")
@@ -391,6 +410,7 @@ def _print_session_start(
     served_models: list[str] | None = None,
 ) -> None:
     print(f"{action}: {record.session_id}")
+    print(f"ref: {record.short_id}")
     print(f"cwd: {record.cwd}")
     print(f"model: {record.model}")
     print(f"artifacts: {record.artifact_dir}")
@@ -401,6 +421,7 @@ def _print_session_start(
 def _print_session_result(record, success: bool, finish_reason: str | None) -> None:
     turns = session_turn_count(record.artifact_path)
     print(f"session_id: {record.session_id}")
+    print(f"session_ref: {record.short_id}")
     print(f"status: {record.status}")
     print(f"cwd: {record.cwd}")
     print(f"artifacts: {record.artifact_dir}")
@@ -409,7 +430,53 @@ def _print_session_result(record, success: bool, finish_reason: str | None) -> N
         print(f"finish_reason: {finish_reason}")
     print(f"turns: {turns}")
     if not success and record.status != "completed":
-        print(f"resume with: {CLI_NAME} resume {record.session_id}")
+        print(f"resume with: {CLI_NAME} resume {record.short_id}")
+
+
+def _handle_keyboard_interrupt(store: SessionStore, record) -> int:
+    mark_session_interrupted(record.artifact_path)
+    store.update_session(
+        record.session_id,
+        status="paused",
+        last_finish_reason="interrupted",
+    )
+    refreshed = store.get_session(record.session_id)
+    final_record = refreshed or record
+    print("interrupted: session paused cleanly")
+    _print_session_result(final_record, False, "interrupted")
+    return 130
+
+
+def _resolve_model_or_exit(config_paths: list[Path], *, requested_model: str | None):
+    try:
+        return resolve_served_model(config_paths, requested_model=requested_model)
+    except Exception as exc:
+        friendly = _friendly_model_resolution_error(exc)
+        if friendly is None:
+            raise
+        raise SystemExit(friendly) from exc
+
+
+def _resolve_smoke_model_or_exit(config_paths: list[Path], *, requested_model: str | None):
+    try:
+        return resolve_smoke_model(config_paths, requested_model=requested_model)
+    except Exception as exc:
+        friendly = _friendly_model_resolution_error(exc)
+        if friendly is None:
+            raise
+        raise SystemExit(friendly) from exc
+
+
+def _friendly_model_resolution_error(exc: Exception) -> str | None:
+    base_url = get_server_base_url()
+    if exc.__class__.__name__ in {"APIConnectionError", "APITimeoutError"}:
+        return (
+            f"could not reach the local model server at {base_url} while resolving /v1/models; "
+            "start the server or fix the base_url setting"
+        )
+    if isinstance(exc, RuntimeError):
+        return f"could not resolve a served model from {base_url}: {exc}"
+    return None
 
 
 @contextlib.contextmanager
@@ -429,7 +496,10 @@ def _session_lock(store: SessionStore, record):
 
 def _resolve_session_record(store: SessionStore, session_ref: str, *, selector: str):
     if session_ref.lower() not in _LATEST_SESSION_TOKENS:
-        record = store.get_session(session_ref)
+        try:
+            record = store.resolve_session_ref(session_ref)
+        except AmbiguousSessionRefError as exc:
+            raise SystemExit(str(exc)) from exc
         if record is None:
             raise SystemExit(f"unknown session: {session_ref}")
         return record

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import tempfile
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
@@ -29,6 +30,7 @@ _EMPTY_STATE = {
     "inference": [],
 }
 _APPROVAL_REQUEST_FILE = "approval_request.json"
+_INTERRUPT_MARKER_FILE = "shell_interrupt.json"
 
 
 def create_session(
@@ -77,6 +79,7 @@ def prepare_smoke_repo(root: Path | None = None) -> Path:
 def run_session(store: SessionStore, record: SessionRecord, *, resume: bool) -> tuple[bool, str | None]:
     """Run exactly one harness outer session for an assistant record."""
     artifact_dir = record.artifact_path
+    clear_interrupt_marker(artifact_dir)
     store.update_session(record.session_id, status="running", last_finish_reason=None)
 
     config_paths = [Path(p) for p in record.config_paths]
@@ -162,6 +165,7 @@ def derive_live_state(artifact_dir: Path) -> LiveState:
     artifact_dir = Path(artifact_dir)
     events = _load_trace_events(artifact_dir / ".trace.jsonl")
     approval = load_approval_request(artifact_dir)
+    interrupt = load_interrupt_marker(artifact_dir)
 
     last_lifecycle: dict | None = None
     for ev in events:
@@ -177,6 +181,16 @@ def derive_live_state(artifact_dir: Path) -> LiveState:
         return LiveState(
             status="approval_pending",
             finish_reason=None,
+            session_number=session_number,
+        )
+
+    if interrupt is not None and (
+        last_lifecycle is None or last_lifecycle.get("event") == "session_start"
+    ):
+        finish_reason = str(interrupt.get("finish_reason") or "interrupted")
+        return LiveState(
+            status="paused",
+            finish_reason=finish_reason,
             session_number=session_number,
         )
 
@@ -355,6 +369,10 @@ def approval_request_path(artifact_dir: Path) -> Path:
     return Path(artifact_dir) / _APPROVAL_REQUEST_FILE
 
 
+def interrupt_marker_path(artifact_dir: Path) -> Path:
+    return Path(artifact_dir) / _INTERRUPT_MARKER_FILE
+
+
 def load_approval_request(artifact_dir: Path) -> dict | None:
     path = approval_request_path(artifact_dir)
     if not path.is_file():
@@ -369,6 +387,40 @@ def save_approval_request(artifact_dir: Path, payload: dict) -> None:
     artifact_dir = Path(artifact_dir)
     artifact_dir.mkdir(parents=True, exist_ok=True)
     approval_request_path(artifact_dir).write_text(json.dumps(payload, indent=2) + "\n")
+
+
+def load_interrupt_marker(artifact_dir: Path) -> dict | None:
+    path = interrupt_marker_path(artifact_dir)
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def save_interrupt_marker(artifact_dir: Path, payload: dict) -> None:
+    artifact_dir = Path(artifact_dir)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    interrupt_marker_path(artifact_dir).write_text(json.dumps(payload, indent=2) + "\n")
+
+
+def clear_interrupt_marker(artifact_dir: Path) -> None:
+    path = interrupt_marker_path(artifact_dir)
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+
+
+def mark_session_interrupted(artifact_dir: Path) -> None:
+    save_interrupt_marker(
+        artifact_dir,
+        {
+            "finish_reason": "interrupted",
+            "interrupted_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
 
 
 def _default_model(config_paths: list[Path]) -> str:
@@ -456,16 +508,21 @@ def override_port(port: int) -> dict[str, str]:
 
 __all__ = [
     "approval_request_path",
+    "clear_interrupt_marker",
     "create_session",
     "derive_live_state",
+    "interrupt_marker_path",
     "last_finish_reason",
     "LiveState",
     "load_approval_request",
+    "load_interrupt_marker",
+    "mark_session_interrupted",
     "prepare_smoke_repo",
     "run_session",
     "resolve_served_model",
     "resolve_smoke_model",
     "save_approval_request",
+    "save_interrupt_marker",
     "session_trace_tail",
     "session_turn_tail",
     "session_turn_count",

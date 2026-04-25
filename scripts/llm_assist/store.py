@@ -69,6 +69,10 @@ class SessionRecord:
     def config_paths(self) -> list[str]:
         return list(json.loads(self.config_paths_json))
 
+    @property
+    def short_id(self) -> str:
+        return self.session_id.rsplit("_", 1)[-1]
+
 
 @dataclass(frozen=True)
 class SessionLock:
@@ -85,6 +89,10 @@ class SessionLockedError(RuntimeError):
             "session is locked by "
             f"pid {lock.owner_pid} on {lock.owner_host} since {lock.acquired_at}"
         )
+
+
+class AmbiguousSessionRefError(RuntimeError):
+    pass
 
 
 def assist_home() -> Path:
@@ -186,6 +194,33 @@ class SessionStore:
                 (limit,),
             ).fetchall()
         return [_row_to_record(row) for row in rows]
+
+    def resolve_session_ref(self, session_ref: str) -> SessionRecord | None:
+        exact = self.get_session(session_ref)
+        if exact is not None:
+            return exact
+
+        records = self.list_sessions(limit=1000)
+        short_exact = [record for record in records if record.short_id == session_ref]
+        if len(short_exact) == 1:
+            return short_exact[0]
+        if len(short_exact) > 1:
+            raise AmbiguousSessionRefError(
+                f"session ref '{session_ref}' matches multiple sessions; use a longer prefix or the full id"
+            )
+
+        prefix_matches = [
+            record
+            for record in records
+            if record.session_id.startswith(session_ref) or record.short_id.startswith(session_ref)
+        ]
+        if len(prefix_matches) == 1:
+            return prefix_matches[0]
+        if len(prefix_matches) > 1:
+            raise AmbiguousSessionRefError(
+                f"session ref '{session_ref}' matches multiple sessions; use a longer prefix or the full id"
+            )
+        return None
 
     def set_active_session(self, cwd: Path | str, session_id: str) -> None:
         now = _utc_now()
@@ -380,6 +415,7 @@ def _utc_now() -> str:
 
 __all__ = [
     "SessionLock",
+    "AmbiguousSessionRefError",
     "SessionLockedError",
     "SessionRecord",
     "SessionStore",

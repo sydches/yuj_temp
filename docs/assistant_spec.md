@@ -139,9 +139,15 @@ Practical notes:
   session list.
 - `sessions` marks active sessions with `[active]` and the current repo with
   `[cwd]`.
+- explicit session references accept the full id, the 8-char `session_ref`,
+  or any unique prefix.
 - active runs hold a session lock; `sessions` marks those with `[locked]`,
   `show` reports the current lock state, and `resume` refuses if another
   terminal already owns the session.
+- `Ctrl-C` pauses a session cleanly as `interrupted`, leaves it resumable, and
+  is reflected in `show` via a shell-owned interrupt marker.
+- model-resolution failures surface as short operator messages naming the base
+  URL and `/v1/models` instead of raw Python tracebacks.
 - Assistant-mode approval classifier covers: `rm`, `git reset --hard`,
   `git clean`, `git checkout --`, `chmod`, `chown`, plus `mv`/`cp` when any
   positional path resolves outside the repo root. Measurement mode is
