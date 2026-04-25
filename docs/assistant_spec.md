@@ -139,6 +139,9 @@ Practical notes:
   session list.
 - `sessions` marks active sessions with `[active]` and the current repo with
   `[cwd]`.
+- active runs hold a session lock; `sessions` marks those with `[locked]`,
+  `show` reports the current lock state, and `resume` refuses if another
+  terminal already owns the session.
 - Assistant-mode approval classifier covers: `rm`, `git reset --hard`,
   `git clean`, `git checkout --`, `chmod`, `chown`, plus `mv`/`cp` when any
   positional path resolves outside the repo root. Measurement mode is

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import sqlite3
 import uuid
 from dataclasses import dataclass
@@ -33,6 +34,13 @@ create table if not exists active_sessions (
     cwd text primary key,
     session_id text not null,
     updated_at text not null
+);
+
+create table if not exists session_locks (
+    session_id text primary key,
+    owner_host text not null,
+    owner_pid integer not null,
+    acquired_at text not null
 )
 """
 
@@ -60,6 +68,23 @@ class SessionRecord:
     @property
     def config_paths(self) -> list[str]:
         return list(json.loads(self.config_paths_json))
+
+
+@dataclass(frozen=True)
+class SessionLock:
+    session_id: str
+    owner_host: str
+    owner_pid: int
+    acquired_at: str
+
+
+class SessionLockedError(RuntimeError):
+    def __init__(self, lock: SessionLock):
+        self.lock = lock
+        super().__init__(
+            "session is locked by "
+            f"pid {lock.owner_pid} on {lock.owner_host} since {lock.acquired_at}"
+        )
 
 
 def assist_home() -> Path:
@@ -215,6 +240,78 @@ class SessionStore:
             rows = conn.execute("select session_id from active_sessions").fetchall()
         return {str(row["session_id"]) for row in rows}
 
+    def acquire_session_lock(self, session_id: str) -> SessionLock:
+        owner_host = socket.gethostname()
+        owner_pid = os.getpid()
+        acquired_at = _utc_now()
+        with self._connect() as conn:
+            conn.execute("begin immediate")
+            row = conn.execute(
+                "select * from session_locks where session_id = ?",
+                (session_id,),
+            ).fetchone()
+            if row is not None:
+                existing = _row_to_lock(row)
+                if _is_same_owner(existing, owner_host, owner_pid) or _is_stale_lock(existing):
+                    conn.execute(
+                        "delete from session_locks where session_id = ?",
+                        (session_id,),
+                    )
+                else:
+                    raise SessionLockedError(existing)
+            conn.execute(
+                """
+                insert into session_locks (
+                    session_id, owner_host, owner_pid, acquired_at
+                ) values (?, ?, ?, ?)
+                """,
+                (session_id, owner_host, owner_pid, acquired_at),
+            )
+        return SessionLock(
+            session_id=session_id,
+            owner_host=owner_host,
+            owner_pid=owner_pid,
+            acquired_at=acquired_at,
+        )
+
+    def release_session_lock(self, session_id: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                delete from session_locks
+                where session_id = ? and owner_host = ? and owner_pid = ?
+                """,
+                (session_id, socket.gethostname(), os.getpid()),
+            )
+
+    def get_session_lock(self, session_id: str) -> SessionLock | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "select * from session_locks where session_id = ?",
+                (session_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        lock = _row_to_lock(row)
+        if _is_stale_lock(lock):
+            with self._connect() as conn:
+                conn.execute(
+                    "delete from session_locks where session_id = ?",
+                    (session_id,),
+                )
+            return None
+        return lock
+
+    def list_locked_session_ids(self) -> set[str]:
+        with self._connect() as conn:
+            rows = conn.execute("select session_id from session_locks").fetchall()
+        locks: set[str] = set()
+        for row in rows:
+            session_id = str(row["session_id"])
+            if self.get_session_lock(session_id) is not None:
+                locks.add(session_id)
+        return locks
+
     def update_session(
         self,
         session_id: str,
@@ -252,8 +349,39 @@ def _row_to_record(row: sqlite3.Row) -> SessionRecord:
     )
 
 
+def _row_to_lock(row: sqlite3.Row) -> SessionLock:
+    return SessionLock(
+        session_id=row["session_id"],
+        owner_host=row["owner_host"],
+        owner_pid=int(row["owner_pid"]),
+        acquired_at=row["acquired_at"],
+    )
+
+
+def _is_same_owner(lock: SessionLock, owner_host: str, owner_pid: int) -> bool:
+    return lock.owner_host == owner_host and lock.owner_pid == owner_pid
+
+
+def _is_stale_lock(lock: SessionLock) -> bool:
+    if lock.owner_host != socket.gethostname():
+        return False
+    try:
+        os.kill(lock.owner_pid, 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+    return False
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-__all__ = ["SessionRecord", "SessionStore", "assist_home"]
+__all__ = [
+    "SessionLock",
+    "SessionLockedError",
+    "SessionRecord",
+    "SessionStore",
+    "assist_home",
+]

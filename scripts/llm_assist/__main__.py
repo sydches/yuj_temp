@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import subprocess
 import sys
 from pathlib import Path
@@ -21,7 +22,7 @@ from .runner import (
     session_turn_count,
     session_turn_tail,
 )
-from .store import SessionStore
+from .store import SessionLockedError, SessionStore
 
 CLI_NAME = "yuj"
 _LATEST_SESSION_TOKENS = {"latest", "last"}
@@ -150,7 +151,7 @@ def cmd_run(args) -> int:
         action="starting",
         served_models=served,
     )
-    with TraceFollower(record.artifact_path):
+    with _session_lock(store, record), TraceFollower(record.artifact_path):
         success, finish_reason = run_session(store, record, resume=False)
     refreshed = store.get_session(record.session_id)
     _print_session_result(refreshed or record, success, finish_reason)
@@ -181,7 +182,8 @@ def cmd_smoke(args) -> int:
         action="starting smoke session",
         served_models=served,
     )
-    success, finish_reason = run_session(store, record, resume=False)
+    with _session_lock(store, record):
+        success, finish_reason = run_session(store, record, resume=False)
     refreshed = store.get_session(record.session_id)
     final_record = refreshed or record
     _print_session_result(final_record, success, finish_reason)
@@ -246,7 +248,7 @@ def cmd_resume(args) -> int:
         return 0
     store.set_active_session(record.cwd, record.session_id)
     _print_session_start(record, action="resuming")
-    with TraceFollower(record.artifact_path):
+    with _session_lock(store, record), TraceFollower(record.artifact_path):
         success, finish_reason = run_session(store, record, resume=True)
     refreshed = store.get_session(record.session_id)
     _print_session_result(refreshed or record, success, finish_reason)
@@ -261,10 +263,13 @@ def cmd_sessions(args) -> int:
         return 0
     current_cwd = str(Path.cwd().resolve())
     active_ids = store.list_active_session_ids()
+    locked_ids = store.list_locked_session_ids()
     for record in sessions:
         flags: list[str] = []
         if record.session_id in active_ids:
             flags.append("active")
+        if record.session_id in locked_ids:
+            flags.append("locked")
         if record.cwd == current_cwd:
             flags.append("cwd")
         flag_text = f" [{' '.join(flags)}]" if flags else ""
@@ -315,12 +320,17 @@ def cmd_show(args) -> int:
         print(f"finish_reason: {finish_reason}")
     print(f"turns: {turns}")
     approval = load_approval_request(record.artifact_path)
+    lock = store.get_session_lock(record.session_id)
     if approval is None:
         print("approval: none")
     else:
         print(f"approval: {approval.get('status')}")
         print(f"approval_reason: {approval.get('reason')}")
         print(f"approval_action: {approval.get('tool_name')}({approval.get('args_summary') or approval.get('cmd') or ''})")
+    if lock is None:
+        print("lock: none")
+    else:
+        print(f"lock: pid={lock.owner_pid} host={lock.owner_host} since={lock.acquired_at}")
     turn_lines = session_turn_tail(record.artifact_path, limit=args.turns)
     if not turn_lines:
         print("recent_turns: (empty)")
@@ -400,6 +410,21 @@ def _print_session_result(record, success: bool, finish_reason: str | None) -> N
     print(f"turns: {turns}")
     if not success and record.status != "completed":
         print(f"resume with: {CLI_NAME} resume {record.session_id}")
+
+
+@contextlib.contextmanager
+def _session_lock(store: SessionStore, record):
+    try:
+        store.acquire_session_lock(record.session_id)
+    except SessionLockedError as exc:
+        raise SystemExit(
+            f"session {record.session_id} is already locked by "
+            f"pid {exc.lock.owner_pid} on {exc.lock.owner_host} since {exc.lock.acquired_at}"
+        ) from exc
+    try:
+        yield
+    finally:
+        store.release_session_lock(record.session_id)
 
 
 def _resolve_session_record(store: SessionStore, session_ref: str, *, selector: str):

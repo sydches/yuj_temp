@@ -14,7 +14,7 @@ from scripts.llm_assist.runner import (
     session_trace_tail,
     session_turn_tail,
 )
-from scripts.llm_assist.store import SessionStore
+from scripts.llm_assist.store import SessionLock, SessionLockedError, SessionStore
 
 
 def test_session_store_round_trip(tmp_path: Path):
@@ -57,6 +57,13 @@ def test_session_store_round_trip(tmp_path: Path):
     assert record.session_id in store.list_active_session_ids()
     store.clear_active_session(tmp_path / "work", session_id=record.session_id)
     assert store.get_active_session(tmp_path / "work") is None
+
+    lock = store.acquire_session_lock(record.session_id)
+    assert lock.session_id == record.session_id
+    assert store.get_session_lock(record.session_id) is not None
+    assert record.session_id in store.list_locked_session_ids()
+    store.release_session_lock(record.session_id)
+    assert store.get_session_lock(record.session_id) is None
 
 
 def test_session_trace_tail_formats_recent_events(tmp_path: Path):
@@ -188,6 +195,7 @@ def test_show_command_prints_session_details_and_trace_tail(tmp_path, capsys):
     assert "status: completed" in captured.out
     assert "finish_reason: stop" in captured.out
     assert "approval: none" in captured.out
+    assert "lock: none" in captured.out
     assert "recent_turns:" in captured.out
     assert "turn 0 (session 1)" in captured.out
     assert "reasoning: Read the buggy implementation first." in captured.out
@@ -257,6 +265,35 @@ def test_resume_rejects_pending_approval_request(tmp_path):
             main(["resume", record.session_id])
         except SystemExit as exc:
             assert "pending approval request" in str(exc)
+        else:
+            raise AssertionError("expected SystemExit")
+
+
+def test_resume_rejects_locked_session(tmp_path):
+    store = SessionStore(tmp_path)
+    record = store.create_session(
+        cwd=tmp_path / "work",
+        model="qwen3-8b",
+        prompt_text="Fix the failing test",
+        prompt_source="inline",
+        context_mode="full",
+        system_prompt_path=None,
+        config_paths=[],
+    )
+    store.update_session(record.session_id, status="paused", last_finish_reason="max_turns")
+    foreign_lock = SessionLock(
+        session_id=record.session_id,
+        owner_host="other-host",
+        owner_pid=4242,
+        acquired_at="2026-04-25T00:00:00+00:00",
+    )
+
+    with patch("scripts.llm_assist.__main__.SessionStore", return_value=store), \
+            patch.object(store, "acquire_session_lock", side_effect=SessionLockedError(foreign_lock)):
+        try:
+            main(["resume", record.session_id])
+        except SystemExit as exc:
+            assert "already locked by pid 4242 on other-host" in str(exc)
         else:
             raise AssertionError("expected SystemExit")
 
@@ -577,6 +614,9 @@ def test_cmd_run_prints_progress_before_final_result(tmp_path, capsys):
     assert idx_progress != -1 and idx_status != -1
     assert idx_start < idx_progress
     assert idx_progress < idx_status
+    sessions = store.list_sessions(limit=1)
+    assert sessions, "expected a persisted session record"
+    assert store.get_session_lock(sessions[0].session_id) is None
 
 
 def test_code_alias_routes_to_run(tmp_path, capsys):
@@ -1002,6 +1042,7 @@ def test_sessions_marks_active_session_and_current_cwd(tmp_path, capsys, monkeyp
     )
     store.set_active_session(repo, local_record.session_id)
     store.set_active_session(other, remote_record.session_id)
+    store.acquire_session_lock(local_record.session_id)
 
     with patch("scripts.llm_assist.__main__.SessionStore", return_value=store):
         rc = main(["sessions"])
@@ -1009,7 +1050,7 @@ def test_sessions_marks_active_session_and_current_cwd(tmp_path, capsys, monkeyp
     captured = capsys.readouterr()
     assert rc == 0
     assert f"{local_record.session_id}  created" in captured.out
-    assert "[active cwd]" in captured.out
+    assert "[active locked cwd]" in captured.out
     assert f"{remote_record.session_id}  created" in captured.out
     assert "[active]" in captured.out
 

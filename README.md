@@ -76,6 +76,7 @@ Ease-of-use defaults:
   the current repo first, then fall back to the latest relevant session
 - `yuj sessions` marks active sessions with `[active]` and the current repo
   with `[cwd]`
+- active runs hold a session lock; `yuj sessions` marks those with `[locked]`
 
 `run` and `smoke` reconcile the requested model against `/v1/models` at session
 creation: alias-resolved ids that are not served verbatim fall back to the
@@ -89,6 +90,10 @@ tailing `.trace.jsonl`. No engine changes are required for this.
 Each session now prints an immediate startup banner with the session id, cwd,
 model, artifact path, and served model list before the live trace begins, so
 the operator does not need to wait for completion just to learn what started.
+
+Only one terminal may own a session at a time. If you try to resume a locked
+session from another terminal, `yuj` refuses cleanly and shows the owning pid,
+host, and acquisition time. `yuj show` also prints the current lock state.
 
 If a risky assistant-mode bash command is blocked, the session pauses with an
 approval request. Assistant-mode classifier coverage: `rm`, `git reset --hard`,

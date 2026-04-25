@@ -51,6 +51,7 @@ Already implemented:
 - positional task text with current-cwd default for `code` / `run`
 - latest-session defaults for `show` / `resume` / `approve`
 - per-cwd active session pointers used before latest-session fallback
+- single-owner session locking for active runs and resumes
 - startup banner before live trace output
 
 Already good enough:

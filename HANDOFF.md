@@ -80,6 +80,9 @@ Equivalent repo-local entrypoints:
   session
 - `sessions` marks active sessions with `[active]` and the current repo with
   `[cwd]`
+- sessions are locked while a run/resume is active; `sessions` marks those
+  with `[locked]`, `show` reports the current lock state, and `resume` refuses
+  if another terminal already owns the session
 - `code`/`run` accept positional task text and default `--cwd` to the current
   directory for the common path
 - `smoke` acceptance checks: `calc.py` contains the fix, `tests/test_calc.py`
