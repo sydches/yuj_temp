@@ -48,6 +48,13 @@ checkout directly.
 
 `code` is an alias of `run` for the common coding-agent entry path.
 
+Install as a real CLI entrypoint:
+
+```bash
+python3 -m pip install -e . --no-build-isolation
+yuj --help
+```
+
 ## Practical CLI Flow
 
 ```bash

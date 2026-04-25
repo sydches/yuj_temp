@@ -49,6 +49,7 @@ Equivalent repo-local entrypoints:
 
 - `./yuj ...`
 - `python3 -m scripts.yuj ...`
+- editable package install via `python3 -m pip install -e . --no-build-isolation`
 
 ## Verified Working
 
