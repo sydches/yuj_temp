@@ -108,6 +108,8 @@ Minimum queryable surface:
 | `yuj sessions` | List sessions with cwd, model, and latest status |
 | `yuj status [session_id]` | Show concise state + next action for one session |
 | `yuj current` | Alias for `yuj status latest` |
+| `yuj models` | List models from the configured provider |
+| `yuj doctor` | Check config, provider reachability, selected model, git root, and bwrap |
 | `yuj inspect knobs [query]` | Search/describe knobs via `scripts/knob.py` |
 | `yuj inspect presets` | Show curated presets |
 
@@ -119,6 +121,7 @@ Implemented and useful in the current staging shell:
 |---|---|
 | `yuj show [session_id]` | Show status, paths, recent turns, and trace tail; default is latest session |
 | `yuj approve [session_id]` | Approve a pending risky action; default is latest pending approval |
+| `yuj reject [session_id]` | Reject a pending risky action and resume with a model-visible note |
 | `yuj smoke` | Bootstrap a throwaway repo, resolve the exact served model id, run one end-to-end assistant session, and assert repo fix + tests pass + no pending approval |
 
 Practical notes:
@@ -173,6 +176,9 @@ Practical notes:
   `git clean`, `git checkout --`, `chmod`, `chown`, plus `mv`/`cp` when any
   positional path resolves outside the repo root. Measurement mode is
   unaffected.
+- Approvals support `approve`, `reject`, `approve --always`, and
+  `reject --always`. `--always` stores a session-local command decision; it is
+  not global policy.
 
 ## Session Layout
 

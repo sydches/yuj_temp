@@ -40,7 +40,10 @@ yuj sessions
 yuj status
 yuj current
 yuj show
+yuj models
+yuj doctor
 yuj approve
+yuj reject
 yuj resume
 ```
 
@@ -77,6 +80,8 @@ yuj sessions
 yuj status
 yuj current
 yuj show
+yuj models
+yuj doctor
 yuj resume
 ```
 
@@ -109,6 +114,8 @@ Ease-of-use defaults:
   or any unique prefix
 - `yuj status [session_ref]` gives a concise state/next-action view
 - `yuj current` is a fast alias for `yuj status latest`
+- `yuj models` lists models from the configured provider
+- `yuj doctor` checks config, model listing, selected model, git root, and bwrap
 - `--provider` accepts `local`, `openai`, `anthropic`, `zai`, `openrouter`,
   and `custom`; provider settings are persisted with the session so `resume`
   uses the same supplier
@@ -163,6 +170,9 @@ positional path resolves outside the repo root. Measurement mode is unaffected.
 ```bash
 yuj show
 yuj approve
+yuj approve --always
+yuj reject --reason "too broad"
+yuj reject --always --reason "never delete build artifacts"
 yuj resume
 yuj show <session_id>
 yuj approve <session_id>

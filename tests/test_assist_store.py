@@ -7,6 +7,7 @@ from scripts.llm_assist.progress import TraceFollower
 from scripts.llm_assist.runner import (
     approval_request_path,
     load_approval_request,
+    load_approval_decisions,
     load_interrupt_marker,
     prepare_smoke_repo,
     resolve_served_model,
@@ -239,6 +240,75 @@ def test_approve_command_marks_pending_request_approved(tmp_path, capsys):
     assert approval["status"] == "approved"
     assert f"approved: {record.session_id}" in captured.out
     assert f"session_ref: {record.short_id}" in captured.out
+
+
+def test_approve_always_records_session_decision(tmp_path, capsys):
+    store = SessionStore(tmp_path)
+    record = store.create_session(
+        cwd=tmp_path / "work",
+        model="qwen3-8b",
+        prompt_text="Fix the failing test",
+        prompt_source="inline",
+        context_mode="full",
+        system_prompt_path=None,
+        config_paths=[],
+    )
+    save_approval_request(
+        Path(record.artifact_dir),
+        {
+            "status": "pending",
+            "tool_name": "bash",
+            "cmd": "rm -rf build",
+            "args_summary": "cmd='rm -rf build'",
+            "reason": "destructive file deletion via rm",
+        },
+    )
+
+    with patch("scripts.llm_assist.__main__.SessionStore", return_value=store):
+        rc = main(["approve", record.session_id, "--always"])
+
+    captured = capsys.readouterr()
+    decisions = load_approval_decisions(Path(record.artifact_dir))
+    assert rc == 0
+    assert decisions["bash:rm -rf build"] == "approved"
+    assert "always approve" in captured.out
+
+
+def test_reject_command_marks_pending_request_rejected(tmp_path, capsys):
+    store = SessionStore(tmp_path)
+    record = store.create_session(
+        cwd=tmp_path / "work",
+        model="qwen3-8b",
+        prompt_text="Fix the failing test",
+        prompt_source="inline",
+        context_mode="full",
+        system_prompt_path=None,
+        config_paths=[],
+    )
+    save_approval_request(
+        Path(record.artifact_dir),
+        {
+            "status": "pending",
+            "tool_name": "bash",
+            "cmd": "rm -rf build",
+            "args_summary": "cmd='rm -rf build'",
+            "reason": "destructive file deletion via rm",
+        },
+    )
+
+    with patch("scripts.llm_assist.__main__.SessionStore", return_value=store):
+        rc = main(["reject", record.session_id, "--reason", "too broad", "--always"])
+
+    captured = capsys.readouterr()
+    approval = load_approval_request(Path(record.artifact_dir))
+    decisions = load_approval_decisions(Path(record.artifact_dir))
+    assert rc == 0
+    assert approval is not None
+    assert approval["status"] == "rejected"
+    assert approval["rejection_reason"] == "too broad"
+    assert decisions["bash:rm -rf build"] == "rejected"
+    assert f"rejected: {record.session_id}" in captured.out
+    assert "always reject" in captured.out
 
 
 def test_resume_rejects_pending_approval_request(tmp_path):
@@ -796,6 +866,49 @@ def test_setup_can_store_api_key_env_reference(tmp_path, monkeypatch):
     assert 'provider = "anthropic"' in text
     assert 'api_key = "$ENV:ANTHROPIC_API_KEY"' in text
     assert "claude-sonnet-4-5" in text
+
+
+def test_models_command_lists_provider_models(capsys):
+    class Cfg:
+        provider = "openai-compatible"
+        base_url = "http://localhost:8080/v1"
+        model = "served-a"
+        api_key = "local"
+        timeout_connect = 1
+        timeout_read = 1
+
+    with patch("scripts.llm_assist.__main__._load_assistant_config", return_value=Cfg()), \
+            patch("scripts.llm_assist.__main__.LlamaClient") as client_cls:
+        client_cls.return_value.health_check.return_value = ["served-a", "served-b"]
+        rc = main(["models"])
+
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "provider: openai-compatible" in captured.out
+    assert "served-a *" in captured.out
+    assert "served-b" in captured.out
+
+
+def test_doctor_reports_model_failure(capsys, tmp_path, monkeypatch):
+    class Cfg:
+        provider = "openai-compatible"
+        base_url = "http://localhost:8080/v1"
+        model = "missing-model"
+        api_key = "local"
+        timeout_connect = 1
+        timeout_read = 1
+
+    monkeypatch.setenv("YUJ_CONFIG_LOCAL", str(tmp_path / "config.local.toml"))
+    with patch("scripts.llm_assist.__main__._load_assistant_config", return_value=Cfg()), \
+            patch("scripts.llm_assist.__main__.LlamaClient") as client_cls:
+        client_cls.return_value.health_check.return_value = ["served-a"]
+        rc = main(["doctor"])
+
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "config: ok" in captured.out
+    assert "models: ok (1 returned)" in captured.out
+    assert "selected_model: fail" in captured.out
 
 
 def test_code_uses_positional_prompt_and_current_dir_by_default(tmp_path, capsys, monkeypatch):

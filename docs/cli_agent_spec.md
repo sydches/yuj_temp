@@ -38,9 +38,12 @@ Already implemented:
 - `setup`
 - `resume`
 - `approve`
+- `reject`
 - `sessions`
 - `current`
 - `show`
+- `models`
+- `doctor`
 - `yuj` operator-facing wrapper
 - `inspect knobs`
 - `inspect presets`
@@ -67,6 +70,9 @@ Already implemented:
   interactively when local config is missing
 - direct Anthropic Messages API adapter plus OpenAI-compatible transport for
   OpenAI, Z.ai, OpenRouter, local servers, and custom gateways
+- provider/model diagnostics via `models` and `doctor`
+- session-local cached approval decisions via `approve --always` and
+  `reject --always`
 
 Already good enough:
 

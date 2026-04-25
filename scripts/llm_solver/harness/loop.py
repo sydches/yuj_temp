@@ -77,6 +77,7 @@ _PATH_SUFFIXES = (
 )
 _SHELL_SEPARATORS = frozenset({"&&", "||", "|", ";"})
 _APPROVAL_REQUEST_FILE = "approval_request.json"
+_APPROVAL_DECISIONS_FILE = "approval_decisions.json"
 
 
 def _dedup_signature(tc) -> tuple[str, str]:
@@ -281,6 +282,12 @@ def _approval_request_path(trace_path: Path | None) -> Path | None:
     return Path(trace_path).parent / _APPROVAL_REQUEST_FILE
 
 
+def _approval_decisions_path(trace_path: Path | None) -> Path | None:
+    if trace_path is None:
+        return None
+    return Path(trace_path).parent / _APPROVAL_DECISIONS_FILE
+
+
 def _load_approval_request(trace_path: Path | None) -> dict | None:
     req_path = _approval_request_path(trace_path)
     if req_path is None or not req_path.is_file():
@@ -306,6 +313,17 @@ def _clear_approval_request(trace_path: Path | None) -> None:
         req_path.unlink()
     except OSError:
         pass
+
+
+def _load_approval_decisions(trace_path: Path | None) -> dict:
+    path = _approval_decisions_path(trace_path)
+    if path is None or not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def _approval_reason_for_bash(cmd: str, cwd: str | None = None) -> str | None:
@@ -1422,6 +1440,11 @@ class Session:
         reason = _approval_reason_for_bash(cmd, self.cwd)
         if reason is None:
             return True, None
+        decision = _load_approval_decisions(self._trace_path).get(f"{tc_name}:{cmd}")
+        if decision == "approved":
+            return True, None
+        if decision == "rejected":
+            return False, f"{reason}; previously rejected by operator"
         approval = _load_approval_request(self._trace_path)
         if (
             approval
@@ -1431,6 +1454,13 @@ class Session:
         ):
             _clear_approval_request(self._trace_path)
             return True, None
+        if (
+            approval
+            and approval.get("status") == "rejected"
+            and approval.get("tool_name") == tc_name
+            and approval.get("cmd") == cmd
+        ):
+            return False, approval.get("rejection_reason") or f"{reason}; rejected by operator"
         payload = {
             "status": "pending",
             "tool_name": tc_name,

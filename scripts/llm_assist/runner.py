@@ -31,6 +31,7 @@ _EMPTY_STATE = {
     "inference": [],
 }
 _APPROVAL_REQUEST_FILE = "approval_request.json"
+_APPROVAL_DECISIONS_FILE = "approval_decisions.json"
 _INTERRUPT_MARKER_FILE = "shell_interrupt.json"
 
 
@@ -108,6 +109,15 @@ def run_session(store: SessionStore, record: SessionRecord, *, resume: bool) -> 
                 + "\n\n"
                 + f"Operator note: the previously blocked action is now approved ({reason}). "
                 + f"If it is still the right next step, re-issue: {args_summary}"
+            )
+        elif approval is not None and approval.get("status") == "rejected":
+            reason = approval.get("rejection_reason") or approval.get("reason") or "approval rejected"
+            args_summary = approval.get("args_summary") or approval.get("cmd") or ""
+            prompt_text = (
+                prompt_text.rstrip()
+                + "\n\n"
+                + f"Operator note: the previously blocked action was rejected ({reason}). "
+                + f"Do not re-issue it unchanged: {args_summary}"
             )
 
     success = solve_task(
@@ -449,6 +459,10 @@ def approval_request_path(artifact_dir: Path) -> Path:
     return Path(artifact_dir) / _APPROVAL_REQUEST_FILE
 
 
+def approval_decisions_path(artifact_dir: Path) -> Path:
+    return Path(artifact_dir) / _APPROVAL_DECISIONS_FILE
+
+
 def interrupt_marker_path(artifact_dir: Path) -> Path:
     return Path(artifact_dir) / _INTERRUPT_MARKER_FILE
 
@@ -467,6 +481,23 @@ def save_approval_request(artifact_dir: Path, payload: dict) -> None:
     artifact_dir = Path(artifact_dir)
     artifact_dir.mkdir(parents=True, exist_ok=True)
     approval_request_path(artifact_dir).write_text(json.dumps(payload, indent=2) + "\n")
+
+
+def load_approval_decisions(artifact_dir: Path) -> dict:
+    path = approval_decisions_path(artifact_dir)
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_approval_decisions(artifact_dir: Path, payload: dict) -> None:
+    artifact_dir = Path(artifact_dir)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    approval_decisions_path(artifact_dir).write_text(json.dumps(payload, indent=2) + "\n")
 
 
 def load_interrupt_marker(artifact_dir: Path) -> dict | None:
@@ -617,6 +648,7 @@ def override_port(port: int) -> dict[str, str]:
 
 
 __all__ = [
+    "approval_decisions_path",
     "approval_request_path",
     "clear_interrupt_marker",
     "create_session",
@@ -625,6 +657,7 @@ __all__ = [
     "last_finish_reason",
     "LiveState",
     "load_approval_request",
+    "load_approval_decisions",
     "load_interrupt_marker",
     "mark_session_interrupted",
     "prepare_smoke_repo",
@@ -632,6 +665,7 @@ __all__ = [
     "resolve_served_model",
     "resolve_smoke_model",
     "save_approval_request",
+    "save_approval_decisions",
     "save_interrupt_marker",
     "session_compact_summary",
     "session_trace_tail",

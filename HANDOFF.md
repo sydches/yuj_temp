@@ -43,10 +43,13 @@ Assistant shell commands currently implemented:
 - `yuj smoke`
 - `yuj resume [session_id]`
 - `yuj approve [session_id]`
+- `yuj reject [session_id]`
 - `yuj sessions`
 - `yuj status [session_id]`
 - `yuj current`
 - `yuj show [session_id]`
+- `yuj models`
+- `yuj doctor`
 - `yuj inspect knobs [query]`
 - `yuj inspect presets`
 
@@ -71,6 +74,8 @@ Equivalent repo-local entrypoints:
 - compact turn renderer in `yuj show`
 - assistant-only approval/suspend for risky bash actions (now includes
   `mv`/`cp` when any positional path resolves outside the repo root)
+- approval UX now supports `reject`, `approve --always`, and `reject --always`
+  with session-local cached decisions
 - `run` and `smoke` both resolve the exact served model id via
   `resolve_served_model` and persist it in session metadata
 - incremental progress rendering during `run` and `resume` via a
@@ -108,6 +113,8 @@ Equivalent repo-local entrypoints:
   `yuj`/`yuj code`/`yuj run`/`yuj smoke` offers setup when that file is absent
 - direct Anthropic uses a small Messages API adapter; OpenAI, Z.ai,
   OpenRouter, local servers, and `custom` use the OpenAI-compatible client path
+- `models` lists configured provider models; `doctor` validates config,
+  provider reachability, selected model, git root, and `bwrap`
 - `smoke` acceptance checks: `calc.py` contains the fix, `tests/test_calc.py`
   passes, and no pending approval is outstanding; failure prints the repo
   path, session id, artifact dir, final status, and finish reason

@@ -1079,6 +1079,40 @@ class TestSessionRun:
         assert approval["status"] == "pending"
         assert approval["cmd"] == "rm -rf build"
 
+    def test_assistant_mode_uses_cached_approval_decision(self, tmp_path):
+        from llm_solver.harness.loop import Session
+
+        cfg = make_config(
+            runtime_mode="assistant",
+            max_turns=1,
+            duplicate_abort=10,
+            done_guard_enabled=False,
+        )
+        client = MagicMock()
+        client.chat.return_value = make_turn_result(
+            tool_calls=[ToolCall(id="c1", name="bash", arguments={"cmd": "rm -rf build"})],
+            finish_reason="tool_calls",
+        )
+        client.build_assistant_message.return_value = {"role": "assistant", "content": "Clean the build output."}
+        (tmp_path / "approval_decisions.json").write_text(
+            json.dumps({"bash:rm -rf build": "approved"}) + "\n"
+        )
+
+        with patch("llm_solver.harness.loop.dispatch", return_value="ok") as dispatch_mock:
+            session = Session(
+                cfg,
+                client,
+                "sys",
+                "prompt",
+                str(tmp_path),
+                trace_path=tmp_path / ".trace.jsonl",
+            )
+            result = session.run()
+
+        assert result.finish_reason != "approval_required"
+        assert dispatch_mock.called is True
+        assert not (tmp_path / "approval_request.json").exists()
+
     def test_assistant_mode_pauses_for_external_cp_target(self, tmp_path):
         from llm_solver.harness.loop import Session
 

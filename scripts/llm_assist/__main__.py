@@ -9,12 +9,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-from ..llm_solver.config import PROJECT_ROOT, get_server_base_url
+from ..llm_solver.config import PROJECT_ROOT, get_server_base_url, load_config
+from ..llm_solver.server import LlamaClient
 from .progress import TraceFollower
 from .runner import (
     approval_request_path,
     create_session,
     derive_live_state,
+    load_approval_decisions,
     load_approval_request,
     load_interrupt_marker,
     mark_session_interrupted,
@@ -22,6 +24,7 @@ from .runner import (
     resolve_served_model,
     resolve_smoke_model,
     run_session,
+    save_approval_decisions,
     save_approval_request,
     session_compact_summary,
     session_trace_tail,
@@ -132,6 +135,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     setup_parser.set_defaults(func=cmd_setup)
 
+    models_parser = sub.add_parser("models", help="list models from the configured provider")
+    models_parser.add_argument("--config", "-c", type=Path, action="append", default=[],
+                               help="extra config TOML overlay; pass multiple times")
+    models_parser.set_defaults(func=cmd_models)
+
+    doctor_parser = sub.add_parser("doctor", help="check local config, provider, and runtime prerequisites")
+    doctor_parser.add_argument("--config", "-c", type=Path, action="append", default=[],
+                               help="extra config TOML overlay; pass multiple times")
+    doctor_parser.set_defaults(func=cmd_doctor)
+
     smoke_parser = sub.add_parser("smoke", help="run an end-to-end assistant smoke task")
     smoke_parser.add_argument("--root", type=Path, default=None,
                               help="throwaway repo root (default: temp dir)")
@@ -175,7 +188,22 @@ def main(argv: list[str] | None = None) -> int:
         default="latest",
         help="assistant session id or 'latest' (default: latest pending approval)",
     )
+    approve_parser.add_argument("--always", action="store_true",
+                                help="approve matching future requests in this session")
     approve_parser.set_defaults(func=cmd_approve)
+
+    reject_parser = sub.add_parser("reject", help="reject a pending assistant action")
+    reject_parser.add_argument(
+        "session_id",
+        nargs="?",
+        default="latest",
+        help="assistant session id or 'latest' (default: latest pending approval)",
+    )
+    reject_parser.add_argument("--reason", default="operator rejected the action",
+                               help="rejection reason shown to the assistant on resume")
+    reject_parser.add_argument("--always", action="store_true",
+                               help="reject matching future requests in this session")
+    reject_parser.set_defaults(func=cmd_reject)
 
     sessions_parser = sub.add_parser("sessions", help="list known assistant sessions")
     sessions_parser.add_argument("--limit", type=int, default=20)
@@ -436,6 +464,68 @@ def cmd_setup(args) -> int:
     return 0
 
 
+def cmd_models(args) -> int:
+    cfg = _load_assistant_config(args.config)
+    client = LlamaClient(cfg, profile=None)
+    models = client.health_check()
+    print(f"provider: {cfg.provider}")
+    print(f"base_url: {cfg.base_url}")
+    if not models:
+        print("(no models returned)")
+        return 1
+    for model in models:
+        marker = " *" if model == cfg.model else ""
+        print(f"{model}{marker}")
+    return 0
+
+
+def cmd_doctor(args) -> int:
+    failures = 0
+    cfg = None
+    try:
+        cfg = _load_assistant_config(args.config)
+        print(f"config: ok ({_config_local_path()})")
+        print(f"provider: {cfg.provider}")
+        print(f"base_url: {cfg.base_url}")
+        print(f"model: {cfg.model}")
+    except Exception as exc:
+        failures += 1
+        print(f"config: fail ({exc})")
+
+    if cfg is not None:
+        try:
+            models = LlamaClient(cfg, profile=None).health_check()
+            print(f"models: ok ({len(models)} returned)")
+            if cfg.model in models:
+                print("selected_model: ok")
+            elif cfg.provider == "openai-compatible" and cfg.base_url.startswith("http://localhost"):
+                failures += 1
+                print("selected_model: fail (not served by local /v1/models)")
+            else:
+                print("selected_model: warn (not listed; hosted providers may still accept explicit ids)")
+        except Exception as exc:
+            failures += 1
+            print(f"models: fail ({exc})")
+
+    if _config_local_path().exists():
+        print("local_config: ok")
+    else:
+        print(f"local_config: warn (missing; run {CLI_NAME} setup)")
+
+    if Path.cwd().joinpath(".git").exists():
+        print("git_repo: ok")
+    else:
+        print("git_repo: warn (current directory is not a git repo root)")
+
+    bwrap = subprocess.run(["which", "bwrap"], capture_output=True, text=True, check=False)
+    if bwrap.returncode == 0:
+        print(f"bwrap: ok ({bwrap.stdout.strip()})")
+    else:
+        print("bwrap: warn (not found; sandboxed bash may be unavailable)")
+
+    return 1 if failures else 0
+
+
 def cmd_sessions(args) -> int:
     store = SessionStore()
     sessions = store.list_sessions(limit=args.limit)
@@ -471,9 +561,36 @@ def cmd_approve(args) -> int:
     if approval is None or approval.get("status") != "pending":
         raise SystemExit(f"no pending approval request for session: {record.session_id}")
     approval["status"] = "approved"
+    if args.always:
+        approval["always"] = True
+        _save_approval_decision(record.artifact_path, approval, "approved")
     save_approval_request(record.artifact_path, approval)
     print(f"approved: {record.session_id}")
     print(f"session_ref: {record.short_id}")
+    if args.always:
+        print("decision: always approve matching action in this session")
+    print(f"request_file: {approval_request_path(record.artifact_path)}")
+    print(f"resume with: {CLI_NAME} resume {record.short_id}")
+    return 0
+
+
+def cmd_reject(args) -> int:
+    store = SessionStore()
+    record = _resolve_session_record(store, args.session_id, selector="pending_approval")
+    approval = load_approval_request(record.artifact_path)
+    if approval is None or approval.get("status") != "pending":
+        raise SystemExit(f"no pending approval request for session: {record.session_id}")
+    approval["status"] = "rejected"
+    approval["rejection_reason"] = args.reason
+    if args.always:
+        approval["always"] = True
+        _save_approval_decision(record.artifact_path, approval, "rejected")
+    save_approval_request(record.artifact_path, approval)
+    print(f"rejected: {record.session_id}")
+    print(f"session_ref: {record.short_id}")
+    print(f"reason: {args.reason}")
+    if args.always:
+        print("decision: always reject matching action in this session")
     print(f"request_file: {approval_request_path(record.artifact_path)}")
     print(f"resume with: {CLI_NAME} resume {record.short_id}")
     return 0
@@ -604,6 +721,16 @@ def _run_knob_command(extra_args: list[str]) -> int:
     return subprocess.run(cmd, check=False).returncode
 
 
+def _save_approval_decision(artifact_dir: Path, approval: dict, decision: str) -> None:
+    tool_name = str(approval.get("tool_name") or "")
+    cmd = str(approval.get("cmd") or "")
+    if not tool_name or not cmd:
+        return
+    decisions = load_approval_decisions(artifact_dir)
+    decisions[f"{tool_name}:{cmd}"] = decision
+    save_approval_decisions(artifact_dir, decisions)
+
+
 def _resolve_prompt_input(args) -> tuple[str, str]:
     has_prompt_text = args.prompt_text is not None
     has_prompt_file = args.prompt_file is not None
@@ -626,6 +753,13 @@ def _config_local_path() -> Path:
     if raw:
         return Path(raw).expanduser().resolve()
     return PROJECT_ROOT / "config.local.toml"
+
+
+def _load_assistant_config(config_paths: list[Path]):
+    return load_config(
+        user_config=config_paths,
+        overrides={"runtime_mode": "assistant", "max_sessions": 1},
+    )
 
 
 def _needs_first_run_setup() -> bool:
