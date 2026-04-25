@@ -115,6 +115,11 @@ def main(argv: list[str] | None = None) -> int:
         help="assistant session id/ref or 'latest' (default: latest session)",
     )
     status_parser.set_defaults(func=cmd_status)
+    current_parser = sub.add_parser(
+        "current",
+        help="show concise status for the current/active session (alias of status latest)",
+    )
+    current_parser.set_defaults(func=cmd_current)
 
     show_parser = sub.add_parser("show", help="inspect one assistant session")
     show_parser.add_argument(
@@ -286,6 +291,7 @@ def cmd_sessions(args) -> int:
     current_cwd = str(Path.cwd().resolve())
     active_ids = store.list_active_session_ids()
     locked_ids = store.list_locked_session_ids()
+    print("session_id                             status     ref       flags               model  cwd")
     for record in sessions:
         flags: list[str] = []
         if record.session_id in active_ids:
@@ -294,10 +300,10 @@ def cmd_sessions(args) -> int:
             flags.append("locked")
         if record.cwd == current_cwd:
             flags.append("cwd")
-        flag_text = f" [{' '.join(flags)}]" if flags else ""
+        flag_text = ",".join(flags) if flags else "-"
         print(
             f"{record.session_id}  {record.status:9s}  "
-            f"ref={record.short_id}  model={record.model}  cwd={record.cwd}{flag_text}"
+            f"{record.short_id:8s}  {flag_text:18s}  {record.model}  {record.cwd}"
         )
         if record.last_finish_reason:
             print(f"    last_finish_reason={record.last_finish_reason}")
@@ -360,6 +366,11 @@ def cmd_status(args) -> int:
     else:
         print("next: none")
     return 0
+
+
+def cmd_current(_args) -> int:
+    # Mirror `status latest` explicitly for a faster operator path.
+    return cmd_status(argparse.Namespace(session_id="latest"))
 
 
 def cmd_show(args) -> int:

@@ -38,6 +38,7 @@ Already implemented:
 - `resume`
 - `approve`
 - `sessions`
+- `current`
 - `show`
 - `yuj` operator-facing wrapper
 - `inspect knobs`
@@ -56,6 +57,7 @@ Already implemented:
 - concise model-resolution failure messages for unreachable local servers
 - short deterministic session references via `session_ref` and unique prefixes
 - concise `status` command for per-session next-action checks
+- `current` alias for `status latest`
 - compact end-of-run summaries derived from trace events
 - startup banner before live trace output
 

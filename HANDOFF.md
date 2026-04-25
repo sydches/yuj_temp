@@ -42,6 +42,7 @@ Assistant shell commands currently implemented:
 - `yuj approve [session_id]`
 - `yuj sessions`
 - `yuj status [session_id]`
+- `yuj current`
 - `yuj show [session_id]`
 - `yuj inspect knobs [query]`
 - `yuj inspect presets`
@@ -80,14 +81,15 @@ Equivalent repo-local entrypoints:
 - `show`, `resume`, and `approve` accept no session id and resolve the active
   session for the current repo before falling back to the latest relevant
   session
-- `sessions` marks active sessions with `[active]` and the current repo with
-  `[cwd]`
+- `sessions` prints a compact table with `ref` and `flags` columns; active,
+  current-repo, and lock ownership are surfaced as `active`, `cwd`, `locked`
 - sessions are locked while a run/resume is active; `sessions` marks those
-  with `[locked]`, `show` reports the current lock state, and `resume` refuses
+  with `locked`, `show` reports the current lock state, and `resume` refuses
   if another terminal already owns the session
 - explicit session references accept the full id, the 8-char `session_ref`,
   or any unique prefix
 - `status` provides a concise state + next-action view for one session
+- `current` is a short alias for `status latest`
 - `Ctrl-C` pauses a session cleanly as `interrupted`, leaves it resumable, and
   is reflected in `show` via a shell-owned interrupt marker
 - model-resolution failures now surface as short operator messages naming the

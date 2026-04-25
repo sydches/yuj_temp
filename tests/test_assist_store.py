@@ -722,7 +722,7 @@ def test_code_alias_help_exits_cleanly(capsys):
     assert "--prompt-text" in captured.out
 
 
-def test_root_help_lists_status_command(capsys):
+def test_root_help_lists_status_and_current_commands(capsys):
     try:
         main(["--help"])
     except SystemExit as exc:
@@ -731,6 +731,7 @@ def test_root_help_lists_status_command(capsys):
         raise AssertionError("expected SystemExit")
     captured = capsys.readouterr()
     assert "status" in captured.out
+    assert "current" in captured.out
 
 
 def test_code_uses_positional_prompt_and_current_dir_by_default(tmp_path, capsys, monkeypatch):
@@ -998,6 +999,30 @@ def test_status_command_prints_next_action_for_running_session(tmp_path, capsys)
     assert rc == 0
     assert "status: running" in captured.out
     assert f"next: yuj show {record.short_id}" in captured.out
+
+
+def test_current_alias_routes_to_status_latest(tmp_path, capsys, monkeypatch):
+    store = SessionStore(tmp_path / "assist-home")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.chdir(repo)
+    record = store.create_session(
+        cwd=repo,
+        model="qwen3-8b",
+        prompt_text="Fix the failing test",
+        prompt_source="inline",
+        context_mode="full",
+        system_prompt_path=None,
+        config_paths=[],
+    )
+
+    with patch("scripts.llm_assist.__main__.SessionStore", return_value=store):
+        rc = main(["current"])
+
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert f"session_id: {record.session_id}" in captured.out
+    assert f"session_ref: {record.short_id}" in captured.out
 
 
 def test_show_accepts_short_session_ref(tmp_path, capsys):
@@ -1283,10 +1308,11 @@ def test_sessions_marks_active_session_and_current_cwd(tmp_path, capsys, monkeyp
 
     captured = capsys.readouterr()
     assert rc == 0
+    assert "session_id" in captured.out
     assert f"{local_record.session_id}  created" in captured.out
-    assert "[active locked cwd]" in captured.out
+    assert "active,locked,cwd" in captured.out
     assert f"{remote_record.session_id}  created" in captured.out
-    assert "[active]" in captured.out
+    assert "active" in captured.out
 
 
 def test_run_model_resolution_failure_exits_cleanly(tmp_path):

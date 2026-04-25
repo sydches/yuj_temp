@@ -38,6 +38,7 @@ yuj code "Fix the failing test."
 yuj smoke
 yuj sessions
 yuj status
+yuj current
 yuj show
 yuj approve
 yuj resume
@@ -68,6 +69,7 @@ yuj run --prompt-file task.txt
 
 yuj sessions
 yuj status
+yuj current
 yuj show
 yuj resume
 ```
@@ -83,12 +85,12 @@ Ease-of-use defaults:
 - each repo cwd keeps an active session pointer
 - `yuj show`, `yuj resume`, and `yuj approve` resolve the active session for
   the current repo first, then fall back to the latest relevant session
-- `yuj sessions` marks active sessions with `[active]` and the current repo
-  with `[cwd]`
-- active runs hold a session lock; `yuj sessions` marks those with `[locked]`
+- `yuj sessions` prints a compact table with `ref` and `flags` columns
+- active/current/locked are surfaced as `active`, `cwd`, and `locked` flags
 - explicit session references accept the full id, the 8-char `session_ref`,
   or any unique prefix
 - `yuj status [session_ref]` gives a concise state/next-action view
+- `yuj current` is a fast alias for `yuj status latest`
 
 `run` and `smoke` reconcile the requested model against `/v1/models` at session
 creation: alias-resolved ids that are not served verbatim fall back to the

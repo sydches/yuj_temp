@@ -105,6 +105,7 @@ Minimum queryable surface:
 | `yuj resume [session_id]` | Resume an existing session; default is latest resumable session |
 | `yuj sessions` | List sessions with cwd, model, and latest status |
 | `yuj status [session_id]` | Show concise state + next action for one session |
+| `yuj current` | Alias for `yuj status latest` |
 | `yuj inspect knobs [query]` | Search/describe knobs via `scripts/knob.py` |
 | `yuj inspect presets` | Show curated presets |
 
@@ -140,8 +141,9 @@ Practical notes:
 - `show`, `resume`, and `approve` accept no session id and resolve the active
   session for the current repo before falling back to the latest relevant
   session list.
-- `sessions` marks active sessions with `[active]` and the current repo with
-  `[cwd]`.
+- `sessions` prints a compact table with `ref` + `flags` columns; active,
+  current-repo, and lock ownership are surfaced as `active`, `cwd`, `locked`.
+- `current` is a short alias for `status latest`.
 - explicit session references accept the full id, the 8-char `session_ref`,
   or any unique prefix.
 - active runs hold a session lock; `sessions` marks those with `[locked]`,
