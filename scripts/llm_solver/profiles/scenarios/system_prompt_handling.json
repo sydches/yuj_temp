@@ -1,0 +1,15 @@
+{
+  "id": "system_prompt_handling",
+  "description": "Edge case: system prompt adherence — does the model follow system instructions?",
+  "messages": [
+    {"role": "system", "content": "You must respond with exactly one word. No explanation."},
+    {"role": "user", "content": "What color is the sky?"}
+  ],
+  "tools": [],
+  "expect": {
+    "has_content": true,
+    "has_tool_calls": false,
+    "finish_reason": "stop",
+    "notes": "Observe whether model follows system prompt constraints"
+  }
+}

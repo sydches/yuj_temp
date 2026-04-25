@@ -1,0 +1,42 @@
+{
+  "id": "thinking_suppression",
+  "description": "Explicit no-reasoning instruction — does model suppress CoT/think blocks when told not to reason?",
+  "messages": [
+    {"role": "system", "content": "Do not reason step by step. Do not think out loud. Do not use a scratchpad. Respond directly and concisely. Use tools immediately without deliberation."},
+    {"role": "user", "content": "List all Python files in the project."}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "glob",
+        "description": "Find files matching a glob pattern.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "Complements thinking_elicitation (which tests CoT ON). Tests CoT suppression. Targets: IBM Granite 3.2 (controllable thinking — should suppress), Qwen3 family (should respect /no_think semantics via system instruction), DeepSeek-R1 distills (always-on reasoning — expect suppression to fail). Observe: (1) does content contain <think>...</think> or visible chain-of-thought despite suppression instruction? (2) does Granite 3.2 actually suppress while Qwen3 and R1 distills do not? (3) is the tool call still emitted correctly despite (or because of) suppression? Key signal: Granite should differ from R1 distills here."
+  }
+}

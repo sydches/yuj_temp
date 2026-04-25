@@ -1,0 +1,31 @@
+{
+  "id": "tool_call_in_content",
+  "description": "Minimal task with a weak tool-calling prompt — does the model emit structured tool_calls or fall back to text/JSON in content?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant."},
+    {"role": "user", "content": "Read the file config.py."}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "Failure mode: tool_calls is null/[] and content contains JSON like '{\"name\": \"read\", \"arguments\": ...}' or '<tool_call>...</tool_call>' or markdown code fences. Affected models: Gemma 3 without tool template, Devstral, Yi-1.5, InternLM2.5. A text-only response with tool-shaped JSON in content is the key observable."
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "id": "invented_parameters",
+  "description": "Task that tempts schema cross-contamination — does the model add parameters not in the schema (cwd, encoding, recursive)?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant."},
+    {"role": "user", "content": "Run 'ls /tmp' and also read requirements.txt with UTF-8 encoding, and search recursively for 'import os' in all Python files."}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "grep",
+        "description": "Search file contents with regex; returns matching lines.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"},
+            "glob": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "notes": "Watch for: bash with 'cwd' param, read with 'encoding' param, grep with 'recursive' param — none of these are in the schema. Affected models: those trained on richer tool schemas (e.g., actual bash tool that takes cwd). Extra params are benign if dispatch ignores them but signal the model is using a different mental schema. Also observe: does bash(cmd='ls /tmp') correctly encode the cwd intent into cmd rather than inventing a cwd param?"
+  }
+}

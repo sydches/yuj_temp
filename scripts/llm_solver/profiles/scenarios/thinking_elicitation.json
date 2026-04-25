@@ -1,0 +1,59 @@
+{
+  "id": "thinking_elicitation",
+  "description": "Complex reasoning task — does the model leak thinking blocks into content or tool arguments?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Think carefully about the best approach, then use tools to implement it."},
+    {"role": "user", "content": "I have a performance issue. The function in main.py might be slow because it reads the entire file on every call. Should I add caching or rewrite it to stream? Check the file first, then make whichever change you think is better."}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "edit",
+        "description": "Replace an exact string in a file (first occurrence).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "old_str": {"type": "string"},
+            "new_str": {"type": "string"}
+          },
+          "required": ["path", "old_str", "new_str"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "Check: (1) does <think> or <|thinking|> appear in content? (2) in tool arguments? (3) is completion_tokens >> visible content length (hidden thinking)? The ambiguous task is designed to trigger reasoning in thinking-enabled models."
+  }
+}

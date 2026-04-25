@@ -1,0 +1,40 @@
+# Task format descriptor: generic verification-looking commands
+#
+# Matches any bash command starting with a word that conventionally
+# denotes a verification step. Broad by design — use when the task
+# environment has no single canonical runner, or when analyzing
+# mixed-domain runs.
+# False positives are expected.
+
+name = "generic"
+description = "Generic verify/test/check/build invocations"
+
+verification_patterns = [
+    '''(?:^|[\s/'"])(?:test|check|verify|validate|lint)\b''',
+    '''(?:^|[\s/'"])(?:make|cmake|ninja|bazel)\b''',
+]
+
+# TODO (per-subtest regression parsing, parked):
+# The analysis tool `analysis/run_summary.py` emits task-aware
+# passed/failed counts from pytest-style "N passed, M failed" summary
+# lines. For this runner, parsed summary stats will be empty until the
+# following keys are added:
+#
+#   [output_parser]
+#   summary_regex = "<regex capturing passed/failed/error counts>"
+#   per_test_regex = "<regex capturing individual test id + PASS|FAIL>"
+#
+# Without these, regression detection falls back to content-blind
+# OK/FAIL from exit codes only (loses per-subtest granularity). Wire
+# this up when a campaign targets this runner and regression
+# granularity matters.
+# (Schema update: the TODO above referenced a flat summary_regex /
+# per_test_regex pair. The implemented shape is nested —
+# see language_quirks/pytest.toml for a working example:
+#   [output_parser.summary]
+#   passed = "..."     # regex: first group = integer count
+#   failed = "..."     # ditto
+#   # ... one entry per summary field
+#   [output_parser.per_test]
+#   regex = "..."      # named captures: verdict, test_id
+# )

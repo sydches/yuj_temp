@@ -1,0 +1,144 @@
+{
+  "id": "gauntlet_refactor_rename",
+  "description": "Gauntlet: mid-session rename refactor — model must emit precise edits for 2 call sites + import in a 50-line file read 1 turn ago.",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Use tools to complete tasks precisely. When editing, use exact strings from the file contents you've already read."},
+    {"role": "user", "content": "Rename the function `process_data` to `transform_data` everywhere in the codebase."},
+    {"role": "assistant", "content": null, "tool_calls": [
+      {
+        "id": "call_0_0",
+        "type": "function",
+        "function": {"name": "grep", "arguments": "{\"pattern\": \"process_data\", \"glob\": \"*.py\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_0_0", "content": "src/utils.py:6:def process_data(raw_input, config=None):\nsrc/utils.py:28:    logger.info(\"process_data completed\")\nsrc/api.py:3:from src.utils import process_data\nsrc/api.py:19:    result = process_data(request.body, config=app_config)\nsrc/api.py:34:    batch_results = [process_data(item) for item in items]\ntests/test_utils.py:8:from src.utils import process_data\ntests/test_utils.py:12:    result = process_data({\"key\": \"value\"})"},
+    {"role": "assistant", "content": "Found `process_data` in 4 files. I'll start with the definition in utils.py.", "tool_calls": [
+      {
+        "id": "call_1_0",
+        "type": "function",
+        "function": {"name": "read", "arguments": "{\"path\": \"src/utils.py\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_1_0", "content": "1: import json\n2: import logging\n3: \n4: logger = logging.getLogger(__name__)\n5: \n6: def process_data(raw_input, config=None):\n7:     \"\"\"Process raw input data through the pipeline.\"\"\"\n8:     if config is None:\n9:         config = {}\n10:     \n11:     if not isinstance(raw_input, dict):\n12:         raise TypeError(f\"Expected dict, got {type(raw_input)}\")\n13:     \n14:     result = {}\n15:     for key, value in raw_input.items():\n16:         if key.startswith('_'):\n17:             continue\n18:         result[key] = str(value).strip()\n19:     \n20:     result['processed'] = True\n21:     result['version'] = config.get('version', '1.0')\n22:     \n23:     logger.info(\"process_data completed\")\n24:     return result\n25: \n26: \n27: def validate_schema(data, schema):\n28:     \"\"\"Validate data against a JSON schema.\"\"\"\n29:     required = schema.get('required', [])\n30:     for field in required:\n31:         if field not in data:\n32:             raise ValueError(f\"Missing required field: {field}\")\n33:     return True"},
+    {"role": "assistant", "content": "Renaming in utils.py — the definition and the log message.", "tool_calls": [
+      {
+        "id": "call_2_0",
+        "type": "function",
+        "function": {"name": "edit", "arguments": "{\"path\": \"src/utils.py\", \"old_str\": \"def process_data(raw_input, config=None):\", \"new_str\": \"def transform_data(raw_input, config=None):\"}"}
+      },
+      {
+        "id": "call_2_1",
+        "type": "function",
+        "function": {"name": "edit", "arguments": "{\"path\": \"src/utils.py\", \"old_str\": \"logger.info(\\\"process_data completed\\\")\", \"new_str\": \"logger.info(\\\"transform_data completed\\\")\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_2_0", "content": "OK"},
+    {"role": "tool", "tool_call_id": "call_2_1", "content": "OK"},
+    {"role": "assistant", "content": "utils.py done. Now reading api.py to get the exact lines.", "tool_calls": [
+      {
+        "id": "call_3_0",
+        "type": "function",
+        "function": {"name": "read", "arguments": "{\"path\": \"src/api.py\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_3_0", "content": "1: from flask import Flask, request, jsonify\n2: from src.config import load_config\n3: from src.utils import process_data\n4: \n5: app = Flask(__name__)\n6: app_config = load_config()\n7: \n8: \n9: @app.route('/process', methods=['POST'])\n10: def handle_process():\n11:     \"\"\"Process a single data payload.\"\"\"\n12:     if not request.is_json:\n13:         return jsonify({'error': 'Expected JSON'}), 400\n14:     \n15:     try:\n16:         payload = request.get_json()\n17:         if 'data' not in payload:\n18:             return jsonify({'error': 'Missing data field'}), 422\n19:         result = process_data(request.body, config=app_config)\n20:         return jsonify({'status': 'ok', 'result': result})\n21:     except TypeError as e:\n22:         return jsonify({'error': str(e)}), 400\n23: \n24: \n25: @app.route('/batch', methods=['POST'])\n26: def handle_batch():\n27:     \"\"\"Process a batch of items.\"\"\"\n28:     payload = request.get_json()\n29:     items = payload.get('items', [])\n30:     if not items:\n31:         return jsonify({'error': 'Empty batch'}), 422\n32:     \n33:     try:\n34:         batch_results = [process_data(item) for item in items]\n35:         return jsonify({\n36:             'status': 'ok',\n37:             'count': len(batch_results),\n38:             'results': batch_results\n39:         })\n40:     except Exception as e:\n41:         return jsonify({'error': str(e)}), 500\n42: \n43: \n44: if __name__ == '__main__':\n45:     app.run(debug=True, port=8080)"}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "write",
+        "description": "Create or overwrite a file.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "content": {"type": "string"}
+          },
+          "required": ["path", "content"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "edit",
+        "description": "Replace an exact string in a file (first occurrence).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "old_str": {"type": "string"},
+            "new_str": {"type": "string"}
+          },
+          "required": ["path", "old_str", "new_str"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "glob",
+        "description": "Find files matching a glob pattern.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "grep",
+        "description": "Search file contents with regex; returns matching lines.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"},
+            "glob": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "min_tool_calls": 3,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "Model must emit 3 edits for api.py: (1) import line 3: 'from src.utils import process_data' → 'from src.utils import transform_data', (2) line 19: 'result = process_data(request.body, config=app_config)' → 'result = transform_data(request.body, config=app_config)', (3) line 34: 'batch_results = [process_data(item) for item in items]' → 'batch_results = [transform_data(item) for item in items]'. All old_str must be verbatim from the read output. Failure modes: (a) edits utils.py again (already done), (b) truncates old_str, (c) misses the import, (d) edits wrong file, (e) uses write to overwrite instead of edit."
+  }
+}

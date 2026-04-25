@@ -1,0 +1,51 @@
+{
+  "id": "error_recovery",
+  "description": "Pre-stuffed failed write — does the model adapt (mkdir + retry) or give up or loop?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Use tools to complete tasks. When a tool returns an error, read the error message and adapt your approach."},
+    {"role": "user", "content": "Create the file src/utils/helpers.py with the content 'def noop(): pass'."},
+    {"role": "assistant", "content": null, "tool_calls": [
+      {
+        "id": "call_0_0",
+        "type": "function",
+        "function": {"name": "write", "arguments": "{\"path\": \"src/utils/helpers.py\", \"content\": \"def noop(): pass\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_0_0", "content": "ERROR: directory 'src/utils/' does not exist"}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "write",
+        "description": "Create or overwrite a file.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "content": {"type": "string"}
+          },
+          "required": ["path", "content"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "min_tool_calls": 1,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "Optimal: bash(cmd='mkdir -p src/utils') or bash+write. Failure modes: (a) gives up with text response, (b) retries write identically, (c) calls non-existent mkdir tool."
+  }
+}

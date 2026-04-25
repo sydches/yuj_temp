@@ -1,0 +1,36 @@
+# Task format descriptor: Rust cargo
+#
+# Matches `cargo test`, `cargo check`, `cargo build` — any cargo
+# subcommand that produces a pass/fail verdict on task correctness.
+#
+# Analysis tools that accept --task-format load this file and use its
+# patterns as the definition of "verification command" for the run.
+
+name = "cargo"
+description = "Rust cargo test/check/build invocations"
+
+verification_patterns = [
+    '''(?:^|[\s/'"])cargo\s+(?:test|check|build|clippy)\b''',
+]
+
+[output_control]
+failure_only_flag = ""
+passed_marker = "ok"
+failed_marker = "FAILED"
+
+# Structured output parsing for cargo test runs. Matches terminal summary
+# line like `test result: FAILED. 2 passed; 1 failed; 0 ignored; …`
+# and per-test lines like `test tests::foo ... ok`.
+[output_parser.summary]
+passed = '''(\d+)\s+passed'''
+failed = '''(\d+)\s+failed'''
+ignored = '''(\d+)\s+ignored'''
+
+[output_parser.per_test]
+# Per-subtest lines: `test <path::name> ... <verdict>` where verdict is
+# ok|FAILED|ignored. Emitted verdicts are preserved as-is (uppercased);
+# consumers that need PASSED/FAILED/ERROR canonical strings will need a
+# verdict-normalization map in parse_structured (not wired yet — pytest
+# already emits canonical literals, so normalization is deferred until
+# the first non-pytest campaign runs done-parity mode).
+regex = '''^test\s+(?P<test_id>\S+)\s+\.{3}\s+(?P<verdict>ok|FAILED|ignored)'''

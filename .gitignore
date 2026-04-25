@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+
+config.local.toml
+
+.tool_output/
+.solver/
+.savings.jsonl
+.trace.jsonl
+checkpoint.json
+metrics.json
+transcript.log
+harness_*.log
+.llm_assist/

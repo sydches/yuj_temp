@@ -1,0 +1,43 @@
+{
+  "id": "behavioral_system_prompt",
+  "description": "Behavioral constraint adherence — does the model obey 'only use tools, never include text'?",
+  "messages": [
+    {"role": "system", "content": "You must ONLY use tools. Never include explanatory text in your response. Never apologize or explain. Just make tool calls silently."},
+    {"role": "user", "content": "Read the file README.md."}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "Key observation: is content null/empty (obeyed) or does it contain explanatory text (violated)? Stronger test than system_prompt_handling which only tests trivial 'one word' compliance."
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "id": "grep_argument_swap",
+  "description": "Both grep and glob present — does the model swap pattern/path args or use glob syntax inside grep?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant."},
+    {"role": "user", "content": "Find all occurrences of the string 'database_url' inside Python files under src/."}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "glob",
+        "description": "Find files matching a glob pattern.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "grep",
+        "description": "Search file contents with regex; returns matching lines.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"},
+            "glob": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "notes": "Optimal: grep(pattern='database_url', path='src/', glob='*.py'). Failure modes: (a) pattern and path swapped — grep(pattern='src/', path='database_url'), (b) glob pattern used in grep.pattern — grep(pattern='**/*.py', path='src/'), (c) glob used instead of grep — glob(pattern='src/**/*.py') with no content search. Affected: small/quantized models that conflate the two tools' pattern semantics."
+  }
+}

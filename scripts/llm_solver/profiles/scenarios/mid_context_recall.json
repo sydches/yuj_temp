@@ -1,0 +1,115 @@
+{
+  "id": "mid_context_recall",
+  "description": "Does the model recall a specific value from an early tool result after several intervening turns — tests lost-in-the-middle attention in an agentic context.",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Use tools to investigate the codebase and complete tasks."},
+    {"role": "user", "content": "What is the current version in version.py? Then check the test suite structure. After that, update the CHANGELOG.md to record that version as the latest release."},
+    {"role": "assistant", "content": null, "tool_calls": [
+      {
+        "id": "call_0_0",
+        "type": "function",
+        "function": {"name": "read", "arguments": "{\"path\": \"version.py\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_0_0", "content": "1: # Version file\n2: __version__ = '2.4.1'\n3: VERSION_TUPLE = (2, 4, 1)"},
+    {"role": "assistant", "content": "The current version is 2.4.1. Now let me check the test suite structure.", "tool_calls": [
+      {
+        "id": "call_1_0",
+        "type": "function",
+        "function": {"name": "glob", "arguments": "{\"pattern\": \"tests/**/*.py\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_1_0", "content": "tests/test_core.py\ntests/test_utils.py\ntests/integration/test_api.py\ntests/integration/test_db.py"},
+    {"role": "assistant", "content": "The test suite has 4 test files across unit and integration layers. Let me check the test_core module.", "tool_calls": [
+      {
+        "id": "call_2_0",
+        "type": "function",
+        "function": {"name": "read", "arguments": "{\"path\": \"tests/test_core.py\", \"limit\": 10}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_2_0", "content": "1: import pytest\n2: from core import process\n3: \n4: def test_process_empty():\n5:     assert process({}) == {}\n6: \n7: def test_process_basic():\n8:     result = process({'key': 'value'})\n9:     assert 'key' in result\n10:     assert result['processed'] is True"},
+    {"role": "assistant", "content": "Tests use pytest and cover core processing. Let me check the integration tests.", "tool_calls": [
+      {
+        "id": "call_3_0",
+        "type": "function",
+        "function": {"name": "read", "arguments": "{\"path\": \"tests/integration/test_api.py\", \"limit\": 8}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_3_0", "content": "1: import pytest\n2: from fastapi.testclient import TestClient\n3: from app import create_app\n4: \n5: @pytest.fixture\n6: def client():\n7:     return TestClient(create_app())\n8: \n9: def test_health_check(client):\n10:     response = client.get('/health')\n11:     assert response.status_code == 200"},
+    {"role": "assistant", "content": "Integration tests use FastAPI TestClient. Now let me check the CHANGELOG before updating it.", "tool_calls": [
+      {
+        "id": "call_4_0",
+        "type": "function",
+        "function": {"name": "read", "arguments": "{\"path\": \"CHANGELOG.md\", \"limit\": 8}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_4_0", "content": "# Changelog\n\n## [Unreleased]\n\n## [2.4.0] - 2025-11-01\n- Added batch processing support\n- Fixed memory leak in stream handler\n\n## [2.3.2] - 2025-09-14\n- Patch: corrected off-by-one in pagination"}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "glob",
+        "description": "Find files matching a glob pattern. Does NOT search file contents — only matches filename patterns.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "edit",
+        "description": "Replace an exact string in a file (first occurrence).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "old_str": {"type": "string"},
+            "new_str": {"type": "string"}
+          },
+          "required": ["path", "old_str", "new_str"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "min_tool_calls": 1,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "The model must use version '2.4.1' (from the first tool result, now 5 exchanges back) when editing CHANGELOG.md. Correct: edit adds a '## [2.4.1]' section. Failure modes: (1) uses '2.4.0' (confuses with CHANGELOG content, recency bias over primacy), (2) re-reads version.py to recover the version (1 extra tool call — acceptable, signals middle-recall weakness), (3) uses a hallucinated version number. The 4 intervening tool result exchanges (glob, 2× read) push the version value toward the middle of context, directly testing the lost-in-the-middle phenomenon in an agentic setting."
+  }
+}

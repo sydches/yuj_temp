@@ -1,0 +1,27 @@
+{
+  "id": "python_tag_emission",
+  "description": "Code execution request — does model emit <|python_tag|> instead of a proper tool_call (Llama 3.1/3.3 dual-paradigm)?",
+  "messages": [
+    {"role": "system", "content": "Environment: ipython\nYou are a coding assistant with access to tools. Use tools to complete tasks."},
+    {"role": "user", "content": "Run a quick Python snippet to print the numbers 1 to 5."}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "Targets Llama 3.1-8B, Llama 3.1-70B, Llama 3.3-70B. The 'Environment: ipython' system keyword activates a second tool-use paradigm in these models: they may emit raw <|python_tag|>print(...)\\n<|eom_id|> instead of a JSON tool_call object. Check: (1) is the response a valid tool_call with function name 'bash'? (2) does content contain <|python_tag|> or <|eot_id|>/<|eom_id|> special tokens instead? (3) are arguments valid JSON? Failure mode: model writes Python code inline using Llama's built-in code-interpreter format, bypassing the JSON tool-call schema entirely."
+  }
+}

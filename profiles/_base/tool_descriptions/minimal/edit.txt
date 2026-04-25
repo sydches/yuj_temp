@@ -1,0 +1,1 @@
+Replace an exact string in a file (first occurrence). You must read the file first. When copying old_str from read output, strip the leading `<N>: ` line-number prefix and preserve the exact indentation that follows.

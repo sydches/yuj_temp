@@ -1,0 +1,45 @@
+{
+  "id": "missing_required_param",
+  "description": "Task that may elicit incomplete tool calls — does the model omit required parameters under context pressure?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Use tools to complete all tasks."},
+    {"role": "user", "content": "Create a new file called output.txt, and also edit the function signature in main.py."}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "write",
+        "description": "Create or overwrite a file.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "content": {"type": "string"}
+          },
+          "required": ["path", "content"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "edit",
+        "description": "Replace an exact string in a file (first occurrence).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "old_str": {"type": "string"},
+            "new_str": {"type": "string"}
+          },
+          "required": ["path", "old_str", "new_str"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "notes": "Watch for: write({\"path\": \"output.txt\"}) missing 'content', or edit({\"path\": \"main.py\", \"new_str\": \"...\"}) missing 'old_str'. Ambiguous task phrasing ('edit the function signature') is designed to leave required params underdetermined, tempting small/quantized models to omit them. Any call missing a required field is the target observable."
+  }
+}

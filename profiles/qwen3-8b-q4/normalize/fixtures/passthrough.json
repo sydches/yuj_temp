@@ -1,0 +1,150 @@
+{
+  "description": "All 8 profiling scenarios pass through normalize unchanged — no model-specific quirks observed",
+  "cases": [
+    {
+      "_scenario": "simple_text",
+      "input": {
+        "content": "4",
+        "tool_calls": [],
+        "finish_reason": "stop"
+      },
+      "expected": {
+        "content": "4",
+        "tool_calls": [],
+        "finish_reason": "stop"
+      }
+    },
+    {
+      "_scenario": "system_prompt_handling",
+      "input": {
+        "content": "blue",
+        "tool_calls": [],
+        "finish_reason": "stop"
+      },
+      "expected": {
+        "content": "blue",
+        "tool_calls": [],
+        "finish_reason": "stop"
+      }
+    },
+    {
+      "_scenario": "malformed_request",
+      "input": {
+        "content": "The \"frobnicate\" tool is not a recognized or available command or function in the current environment. It seems to be either a fictional, custom, or non-existent tool. If you have more context or details about what \"frobnicate\" is supposed to do, feel free to provide them, and I can assist further!",
+        "tool_calls": [],
+        "finish_reason": "stop"
+      },
+      "expected": {
+        "content": "The \"frobnicate\" tool is not a recognized or available command or function in the current environment. It seems to be either a fictional, custom, or non-existent tool. If you have more context or details about what \"frobnicate\" is supposed to do, feel free to provide them, and I can assist further!",
+        "tool_calls": [],
+        "finish_reason": "stop"
+      }
+    },
+    {
+      "_scenario": "tool_followup",
+      "input": {
+        "content": "The following files are in the current directory:\n\n- `main.py`\n- `test.py`\n- `README.md`",
+        "tool_calls": [],
+        "finish_reason": "stop"
+      },
+      "expected": {
+        "content": "The following files are in the current directory:\n\n- `main.py`\n- `test.py`\n- `README.md`",
+        "tool_calls": [],
+        "finish_reason": "stop"
+      }
+    },
+    {
+      "_scenario": "single_tool_call",
+      "input": {
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "nVuSSkht2K9Z6tMKQ8SHcWCRvpYEmHK4",
+            "type": "function",
+            "function": {
+              "name": "bash",
+              "arguments": "{\"cmd\": \"ls\"}"
+            }
+          }
+        ],
+        "finish_reason": "tool_calls"
+      },
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "nVuSSkht2K9Z6tMKQ8SHcWCRvpYEmHK4",
+            "type": "function",
+            "function": {
+              "name": "bash",
+              "arguments": "{\"cmd\": \"ls\"}"
+            }
+          }
+        ],
+        "finish_reason": "tool_calls"
+      }
+    },
+    {
+      "_scenario": "empty_content",
+      "input": {
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "ugXQvEa4TEh6YxHfOYOHG3JExBsXWuhp",
+            "type": "function",
+            "function": {
+              "name": "bash",
+              "arguments": "{\"cmd\": \"pwd\"}"
+            }
+          }
+        ],
+        "finish_reason": "tool_calls"
+      },
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "ugXQvEa4TEh6YxHfOYOHG3JExBsXWuhp",
+            "type": "function",
+            "function": {
+              "name": "bash",
+              "arguments": "{\"cmd\": \"pwd\"}"
+            }
+          }
+        ],
+        "finish_reason": "tool_calls"
+      }
+    },
+    {
+      "_scenario": "multi_tool_call",
+      "input": {
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "lLPvo7o83sqAx1qEykJb97tsJkBr8NRA",
+            "type": "function",
+            "function": {
+              "name": "read",
+              "arguments": "{\"path\": \"main.py\"}"
+            }
+          }
+        ],
+        "finish_reason": "tool_calls"
+      },
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "lLPvo7o83sqAx1qEykJb97tsJkBr8NRA",
+            "type": "function",
+            "function": {
+              "name": "read",
+              "arguments": "{\"path\": \"main.py\"}"
+            }
+          }
+        ],
+        "finish_reason": "tool_calls"
+      }
+    }
+  ]
+}

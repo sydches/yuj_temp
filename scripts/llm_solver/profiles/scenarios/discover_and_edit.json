@@ -1,0 +1,79 @@
+{
+  "id": "discover_and_edit",
+  "description": "Model must search to find exact content, then produce a verbatim old_str for edit — tests discovery-to-precision-edit pipeline without pre-provided content.",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Use tools to investigate files before editing them."},
+    {"role": "user", "content": "In the project, find the function named 'calculate_discount' and rename it to 'apply_discount'. Change only the function definition line, not the calls."}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "grep",
+        "description": "Search file contents with regex; returns matching lines with file paths.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"},
+            "glob": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "glob",
+        "description": "Find files matching a glob pattern. Does NOT search file contents — only matches filename patterns.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "edit",
+        "description": "Replace an exact string in a file (first occurrence). old_str must be a byte-exact substring of the file.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "old_str": {"type": "string"},
+            "new_str": {"type": "string"}
+          },
+          "required": ["path", "old_str", "new_str"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "min_tool_calls": 2,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "Optimal path: grep(pattern='def calculate_discount') → edit with exact old_str from grep result. Acceptable: glob → read → edit. Key observations: (1) does the model use grep/glob to discover before editing, or hallucinate a path? (2) is old_str verbatim from the discovered content, or paraphrased/truncated? old_str precision is the critical signal — whitespace normalization, truncation, or paraphrase will cause the edit to fail. Contrast with long_edit_strings (content pre-provided) and edit_tool (old_str given in task description). This scenario requires the model to derive old_str from a tool result."
+  }
+}

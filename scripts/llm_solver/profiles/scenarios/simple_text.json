@@ -1,0 +1,14 @@
+{
+  "id": "simple_text",
+  "description": "Simple text response with no tool calls — does the model stop cleanly?",
+  "messages": [
+    {"role": "system", "content": "You are a helpful assistant."},
+    {"role": "user", "content": "What is 2 + 2? Reply with just the number."}
+  ],
+  "tools": [],
+  "expect": {
+    "has_content": true,
+    "has_tool_calls": false,
+    "finish_reason": "stop"
+  }
+}

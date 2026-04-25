@@ -1,0 +1,106 @@
+[profile]
+format_version = 1
+canonical_version = "openai-v1"
+name = "qwen3-8b-q4"
+family = "qwen3"
+quant = "Q4_K_M"
+inherits = "_base"
+
+[model]
+context_size = 40960    # model-native (131072 with YaRN, 40960 base)
+chat_template = "chatml"
+supports_tool_calls = true
+supports_system_role = true
+
+[tokens]
+method = "chars_div_4"
+tokenizer = ""
+
+[capacity]
+preamble = ""
+max_tools = 6
+simplify_schemas = false
+
+[normalize]
+rules = ["rules.toml"]
+modules = []
+
+[denormalize]
+rules = ["rules.toml"]
+modules = ["behavioral.py"]
+
+[behavioral]
+tool_call_style = "openai_json"
+reminder_placement = "system"
+suffix = """
+
+## Concrete application
+
+**Friction — what counts as a gate:** The repo's own test suite is the mechanical gate
+for Correctness (tests_pass). Import checks and pip install are build steps, not gates.
+Before your first execute→verify cycle, find the gate: search for test files
+(tests/, test/, *_test.py, Makefile, tox.ini). Read them — they define what the
+verify step checks. Run the gate after every code change. Gate strength ordering:
+import check < inline smoke test < repo test suite. Use the strongest available.
+
+**Compromise — orientation budget:** "Smallest verified step" means act, don't survey.
+After starting or resuming, spend at most 2 turns orienting (ls, pwd, reading existing
+files). Then execute. If you wrote a file last session, don't re-read it — edit or test it.
+
+**Friction — gate verdict required for termination:** "Verdict is the gate's, not the
+agent's." Do not declare done without gate output. If you haven't run the repo's test
+suite (or equivalent verification), the Correctness constraint is unverified."""
+
+[server]
+model_path = "~/models/Qwen3-8B-Q4_K_M.gguf"
+ctx_size = 40960
+flash_attn = true
+cache_type_k = "q8_0"
+cache_type_v = "q8_0"
+jinja = true
+reasoning_mode = "think"
+reasoning_disable_flag = "--reasoning-budget 0"
+extra_flags = ""
+
+[provenance]
+generated = "2026-04-03"
+llama_server = "--reasoning-budget 0"
+model_file = "Qwen3-8B-Q4_K_M.gguf"
+model_sha256 = ""
+process_version = "1"
+self_profiled = false
+scenario_results = "47/47 — T3-CAPABLE, no normalization quirks, 3 trailing newlines stripped by _base"
+
+[metadata.hf_config]
+architectures = '["Qwen3ForCausalLM"]'
+attention_bias = false
+attention_dropout = 0.0
+bos_token_id = 151643
+eos_token_id = 151645
+head_dim = 128
+hidden_act = "silu"
+hidden_size = 4096
+initializer_range = 0.02
+intermediate_size = 12288
+max_position_embeddings = 40960
+max_window_layers = 36
+model_type = "qwen3"
+num_attention_heads = 32
+num_hidden_layers = 36
+num_key_value_heads = 8
+rms_norm_eps = 1e-06
+rope_scaling = ""
+rope_theta = 1000000
+sliding_window = ""
+tie_word_embeddings = false
+torch_dtype = "bfloat16"
+transformers_version = "4.51.0"
+use_cache = true
+use_sliding_window = false
+vocab_size = 151936
+
+[metadata.server]
+n_ctx = 40960
+params = '{"seed":4294967295,"temperature":0.800000011920929,"dynatemp_range":0.0,"dynatemp_exponent":1.0,"top_k":40,"top_p":0.949999988079071,"min_p":0.05000000074505806,"top_n_sigma":-1.0,"xtc_probability":0.0,"xtc_threshold":0.10000000149011612,"typical_p":1.0,"repeat_last_n":64,"repeat_penalty":1.0,"pr...'
+chat_template_file = "_metadata/chat_template.jinja"
+# server n_ctx = 40960 (hardware-constrained)

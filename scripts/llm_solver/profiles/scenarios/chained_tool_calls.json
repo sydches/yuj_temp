@@ -1,0 +1,56 @@
+{
+  "id": "chained_tool_calls",
+  "description": "Pre-stuffed 2-round chain (read then edit): given a file's content, does the model make the edit call?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Investigate files then make targeted edits."},
+    {"role": "user", "content": "In main.py, change the version string from '1.0.0' to '1.1.0'."},
+    {"role": "assistant", "content": null, "tool_calls": [
+      {
+        "id": "call_0_0",
+        "type": "function",
+        "function": {"name": "read", "arguments": "{\"path\": \"main.py\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_0_0", "content": "1: # main.py\n2: VERSION = '1.0.0'\n3: \n4: def main():\n5:     print(f'Version {VERSION}')"}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "edit",
+        "description": "Replace an exact string in a file (first occurrence).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "old_str": {"type": "string"},
+            "new_str": {"type": "string"}
+          },
+          "required": ["path", "old_str", "new_str"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "min_tool_calls": 1,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "Model should emit edit(path='main.py', old_str=\"VERSION = '1.0.0'\", new_str=\"VERSION = '1.1.0'\"). Observe whether it re-reads or skips straight to edit."
+  }
+}

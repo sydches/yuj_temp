@@ -1,0 +1,48 @@
+{
+  "id": "behavioral_constraint_adherence",
+  "description": "Semantic behavioral constraint in system prompt — does the model apply a task-specific rule (add a comment above every edit) or ignore it?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. IMPORTANT RULE: When modifying any Python file, you MUST add the comment '# AGENT_EDIT' on the line immediately above every changed line. This rule applies to every edit without exception."},
+    {"role": "user", "content": "In app/config.py, change the value of MAX_RETRIES from 3 to 5."}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "edit",
+        "description": "Replace an exact string in a file (first occurrence).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "old_str": {"type": "string"},
+            "new_str": {"type": "string"}
+          },
+          "required": ["path", "old_str", "new_str"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "min_tool_calls": 1,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "Compliant edit: new_str must include '# AGENT_EDIT' on the line immediately above 'MAX_RETRIES = 5'. Example compliant new_str: '# AGENT_EDIT\\nMAX_RETRIES = 5'. Failure: new_str is 'MAX_RETRIES = 5' with no comment — the change is structurally correct but the behavioral constraint is silently ignored. This tests semantic instruction following (not format compliance), which degrades first at Q3_K_M and fails entirely at Q2_K. The model may also read the file first before editing; that is acceptable."
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "id": "tool_followup",
+  "description": "Tool result followed by model continuation — does the model continue correctly after seeing tool output?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Use tools to investigate, then explain findings."},
+    {"role": "user", "content": "What files are in the current directory?"},
+    {"role": "assistant", "content": null, "tool_calls": [
+      {
+        "id": "call_0_0",
+        "type": "function",
+        "function": {"name": "bash", "arguments": "{\"cmd\": \"ls\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_0_0", "content": "main.py\ntest.py\nREADME.md"}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_content": true,
+    "finish_reason": "stop"
+  }
+}

@@ -1,0 +1,146 @@
+{
+  "id": "gauntlet_bug_investigation",
+  "description": "Gauntlet: trace a KeyError across 4 files, fix root cause not symptom, using old_str from 3 turns back.",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Investigate bugs systematically: read the traceback, find the source, understand the root cause, then fix it. Do not modify tests to match broken code."},
+    {"role": "user", "content": "The test `test_process_batch` is failing with 'KeyError: processed_at'. Find the bug and fix it."},
+    {"role": "assistant", "content": null, "tool_calls": [
+      {
+        "id": "call_0_0",
+        "type": "function",
+        "function": {"name": "bash", "arguments": "{\"cmd\": \"python3 -m pytest tests/test_batch.py::test_process_batch -x 2>&1\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_0_0", "content": "============================= FAILURES =============================\n_________________ test_process_batch _________________\ntests/test_batch.py:18: in test_process_batch\n    assert result['processed_at'] is not None\nE   KeyError: 'processed_at'\n\nDuring handling of the above exception, another exception occurred:\n\ntests/test_batch.py:18: KeyError\n----- Captured stdout -----\nProcessing batch of 3 items...\nBatch completed in 0.02s\n============================= short test summary info =============================\nFAILED tests/test_batch.py::test_process_batch - KeyError: 'processed_at'\n========================= 1 failed in 0.34s ========================="},
+    {"role": "assistant", "content": "The test expects `result['processed_at']` but that key doesn't exist. Let me read the test to understand what's expected.", "tool_calls": [
+      {
+        "id": "call_1_0",
+        "type": "function",
+        "function": {"name": "read", "arguments": "{\"path\": \"tests/test_batch.py\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_1_0", "content": "1: import pytest\n2: from datetime import datetime\n3: from src.batch import process_batch\n4: \n5: \n6: def test_process_batch_empty():\n7:     results = process_batch([])\n8:     assert results == []\n9: \n10: \n11: def test_process_batch():\n12:     items = [\n13:         {'name': 'alpha', 'value': 10},\n14:         {'name': 'beta', 'value': 20},\n15:         {'name': 'gamma', 'value': 30},\n16:     ]\n17:     results = process_batch(items)\n18:     assert len(results) == 3\n19:     for result in results:\n20:         assert result['processed_at'] is not None\n21:         assert isinstance(result['processed_at'], str)\n22:         assert result['status'] == 'completed'\n23: \n24: \n25: def test_process_batch_with_errors():\n26:     items = [{'name': 'valid', 'value': 1}, None]\n27:     results = process_batch(items)\n28:     assert len(results) == 2\n29:     assert results[0]['status'] == 'completed'\n30:     assert results[1]['status'] == 'error'"},
+    {"role": "assistant", "content": "The test expects each result to have `processed_at` and `status` fields. Let me read the implementation.", "tool_calls": [
+      {
+        "id": "call_2_0",
+        "type": "function",
+        "function": {"name": "read", "arguments": "{\"path\": \"src/batch.py\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_2_0", "content": "1: \"\"\"Batch processing module.\"\"\"\n2: import logging\n3: from datetime import datetime\n4: from typing import Any\n5: \n6: from src.models import BatchItem, BatchResult\n7: \n8: logger = logging.getLogger(__name__)\n9: \n10: \n11: def process_batch(items: list[dict]) -> list[dict]:\n12:     \"\"\"Process a batch of items and return results.\"\"\"\n13:     if not items:\n14:         return []\n15:     \n16:     logger.info(\"Processing batch of %d items...\", len(items))\n17:     results = []\n18:     \n19:     for item in items:\n20:         try:\n21:             if item is None:\n22:                 raise ValueError(\"Item cannot be None\")\n23:             \n24:             validated = BatchItem(\n25:                 name=item['name'],\n26:                 value=item['value']\n27:             )\n28:             \n29:             output = {\n30:                 'name': validated.name,\n31:                 'value': validated.value * 2,\n32:                 'status': 'completed',\n33:                 'process_timestamp': datetime.now().isoformat(),\n34:             }\n35:             results.append(output)\n36:         \n37:         except Exception as e:\n38:             results.append({\n39:                 'status': 'error',\n40:                 'error': str(e),\n41:                 'process_timestamp': datetime.now().isoformat(),\n42:             })\n43:     \n44:     elapsed = results[-1]['process_timestamp'] if results else 'n/a'\n45:     logger.info(\"Batch completed\")\n46:     return results\n47: \n48: \n49: def get_batch_stats(results: list[dict]) -> dict:\n50:     \"\"\"Get statistics from batch results.\"\"\"\n51:     completed = sum(1 for r in results if r['status'] == 'completed')\n52:     errors = sum(1 for r in results if r['status'] == 'error')\n53:     return {'completed': completed, 'errors': errors, 'total': len(results)}"},
+    {"role": "assistant", "content": "Found it — line 33 uses `process_timestamp` but the test expects `processed_at`. Let me check the model to see which is the canonical field name.", "tool_calls": [
+      {
+        "id": "call_3_0",
+        "type": "function",
+        "function": {"name": "grep", "arguments": "{\"pattern\": \"processed_at|process_timestamp\", \"glob\": \"*.py\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_3_0", "content": "src/batch.py:33:                'process_timestamp': datetime.now().isoformat(),\nsrc/batch.py:41:                'process_timestamp': datetime.now().isoformat(),\nsrc/models.py:18:    processed_at: str | None = None\ntests/test_batch.py:20:        assert result['processed_at'] is not None\ntests/test_batch.py:21:        assert isinstance(result['processed_at'], str)"},
+    {"role": "assistant", "content": "The model (models.py) defines the field as `processed_at`, and the test uses `processed_at`. The bug is in batch.py which uses the wrong name `process_timestamp`. Let me verify the model definition.", "tool_calls": [
+      {
+        "id": "call_4_0",
+        "type": "function",
+        "function": {"name": "read", "arguments": "{\"path\": \"src/models.py\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_4_0", "content": "1: \"\"\"Data models for the batch processing system.\"\"\"\n2: from dataclasses import dataclass, field\n3: from datetime import datetime\n4: \n5: \n6: @dataclass\n7: class BatchItem:\n8:     name: str\n9:     value: int\n10:     metadata: dict = field(default_factory=dict)\n11: \n12: \n13: @dataclass\n14: class BatchResult:\n15:     name: str\n16:     value: int\n17:     status: str = 'pending'\n18:     processed_at: str | None = None\n19:     error: str | None = None\n20: \n21:     def mark_completed(self):\n22:         self.status = 'completed'\n23:         self.processed_at = datetime.now().isoformat()\n24: \n25:     def mark_error(self, message: str):\n26:         self.status = 'error'\n27:         self.error = message\n28:         self.processed_at = datetime.now().isoformat()"}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "write",
+        "description": "Create or overwrite a file.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "content": {"type": "string"}
+          },
+          "required": ["path", "content"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "edit",
+        "description": "Replace an exact string in a file (first occurrence).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "old_str": {"type": "string"},
+            "new_str": {"type": "string"}
+          },
+          "required": ["path", "old_str", "new_str"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "glob",
+        "description": "Find files matching a glob pattern.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "grep",
+        "description": "Search file contents with regex; returns matching lines.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"},
+            "glob": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "min_tool_calls": 1,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "Model must fix src/batch.py (read 3 turns ago), changing 'process_timestamp' to 'processed_at' on BOTH line 33 and line 41. Correct: 2 edit calls targeting src/batch.py. The model and tests agree on 'processed_at' — the implementation is wrong. Failure modes: (a) modifies models.py or tests instead (wrong file — fixing symptoms), (b) only fixes line 33 and misses line 41 (incomplete), (c) uses imprecise old_str from memory instead of verbatim from the read, (d) uses wrong file path, (e) re-reads batch.py (acceptable but signals context recall weakness)."
+  }
+}

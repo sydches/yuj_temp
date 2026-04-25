@@ -1,0 +1,15 @@
+{
+  "id": "structured_output_code_fence",
+  "description": "JSON output request — does the model return bare JSON or wrap it in a markdown code fence?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. When asked to produce JSON output, return raw JSON only — no markdown, no code fences, no explanation."},
+    {"role": "user", "content": "Return a JSON object with these fields: name set to 'Alice', age set to 30, active set to true."}
+  ],
+  "tools": [],
+  "expect": {
+    "has_content": true,
+    "has_tool_calls": false,
+    "finish_reason": "stop",
+    "notes": "Check whether content starts with '{' (correct raw JSON) or with '```' (code fence wrapping, broken). Also check for leading prose like 'Here is the JSON:'. Qwen-family models trained on markdown-heavy data default to wrapping structured outputs in ```json ... ``` code fences even when explicitly instructed not to. This breaks downstream parsers that call json.loads() on the raw content."
+  }
+}

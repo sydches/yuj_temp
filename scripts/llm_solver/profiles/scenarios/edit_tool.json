@@ -1,0 +1,32 @@
+{
+  "id": "edit_tool",
+  "description": "Edit tool — 3-param string replacement; does the model supply path, old_str, new_str correctly?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Use the edit tool to modify files."},
+    {"role": "user", "content": "In the file config.py, replace the line 'DEBUG = False' with 'DEBUG = True'."}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "edit",
+        "description": "Replace an exact string in a file (first occurrence).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "old_str": {"type": "string"},
+            "new_str": {"type": "string"}
+          },
+          "required": ["path", "old_str", "new_str"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "min_tool_calls": 1,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "Check all three params present; old_str and new_str are the critical observation points"
+  }
+}

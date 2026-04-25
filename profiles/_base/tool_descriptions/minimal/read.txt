@@ -1,0 +1,1 @@
+Read a file; returns contents with line numbers. Errors on directories — use glob to list directory contents.

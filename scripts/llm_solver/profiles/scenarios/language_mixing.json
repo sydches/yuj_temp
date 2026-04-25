@@ -1,0 +1,15 @@
+{
+  "id": "language_mixing",
+  "description": "Minimal system prompt — does the model respond in English or mix in Chinese characters?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant."},
+    {"role": "user", "content": "Explain what this code does: result = [process(data) for data in items]"}
+  ],
+  "tools": [],
+  "expect": {
+    "has_content": true,
+    "has_tool_calls": false,
+    "finish_reason": "stop",
+    "notes": "Check whether response contains Chinese characters (CJK Unicode range U+4E00–U+9FFF). Qwen-family and GLM models have heavy Chinese training distribution and may switch to Chinese when the system prompt is minimal and the task contains common variable names (data, process, result) that appear frequently in Chinese tutorials. A well-behaved model responds entirely in English."
+  }
+}

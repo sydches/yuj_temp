@@ -1,0 +1,30 @@
+{
+  "id": "tool_call_as_text",
+  "description": "Multi-param task with weak prompt — does the model emit structured tool_calls or text-embedded XML/JSON for write?",
+  "messages": [
+    {"role": "system", "content": "You are an assistant."},
+    {"role": "user", "content": "Write a file called notes.txt with the content 'Meeting at 3pm'."}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "write",
+        "description": "Create or overwrite a file.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "content": {"type": "string"}
+          },
+          "required": ["path", "content"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "Complements tool_call_in_content (which tests read). This tests write (2 required params) with minimal system prompt. Watch for: tool calls as <tool_call> XML in content, JSON blob in content, or correct structured tool_calls. The multi-param write is harder to embed as text than single-param read, making this a stricter test."
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "id": "phantom_tool_call",
+  "description": "Task framed to match training-data tool names — does the model call a tool not in the schema?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Only use the tools available to you."},
+    {"role": "user", "content": "Search the codebase for all Python files, then look inside them for any TODO comments."}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "grep",
+        "description": "Search file contents with regex; returns matching lines.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"},
+            "glob": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "notes": "Watch for tool calls to non-schema names: 'file_search', 'list_directory', 'python_repl', 'ToolSearch', 'find_files', 'search_codebase'. Affected: models trained on Claude Code or Anthropic-format tool sets. Optimal: grep(pattern='TODO', glob='*.py') or bash(cmd='grep -r TODO . --include=*.py'). Any function.name not in ['bash','grep'] is the target observable."
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "id": "always_on_thinking",
+  "description": "Simple task with explicit 'no thinking' instruction — does the model produce visible content or only invisible tokens?",
+  "messages": [
+    {"role": "system", "content": "You are a concise coding assistant. Do not think before responding. Do not reason aloud. Make tool calls directly without preamble."},
+    {"role": "user", "content": "Run pwd."}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "Target quirk: models with always-on thinking baked into weights (QwQ-32B, Devstral Small 2 current weights) cannot suppress thinking regardless of instruction. Two distinct failure modes: (a) content field is empty/null but completion_tokens >> 0 — thinking consumed all tokens, zero visible output (Devstral with --reasoning off); (b) <think>...</think> block appears in content despite suppression instruction. Compare completion_tokens to visible content length: a large ratio (>10:1) indicates hidden thinking overhead. The trivial task (pwd) minimizes reasoning need, isolating the always-on behavior from task complexity."
+  }
+}

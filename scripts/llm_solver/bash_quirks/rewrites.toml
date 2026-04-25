@@ -1,0 +1,48 @@
+# bash_rewrites.toml — Command rewrite rules for noisy bash patterns.
+#
+# Each [[rewrite]] entry matches a command pattern and appends a flag
+# to reduce output volume. The harness applies these BEFORE execution.
+# The model's command still runs — it just runs quieter.
+#
+# Rules:
+#   pattern:  regex matched against the full bash command (re.IGNORECASE)
+#   flag:     appended to the command if not already present
+#   skip_if:  don't append if this substring is already in the command
+#
+# These are universal — not benchmark-specific. They apply to any run.
+
+[[rewrite]]
+name = "pip_install"
+pattern = '''(?:^|[\s'"])pip[0-9]?\s+install\b'''
+flag = "-q"
+skip_if = ["-q", "--quiet"]
+
+[[rewrite]]
+name = "pip_module_install"
+pattern = '''python[0-9]?\s+-m\s+pip\s+install\b'''
+flag = "-q"
+skip_if = ["-q", "--quiet"]
+
+[[rewrite]]
+name = "npm_install"
+pattern = '''(?:^|[\s'"])npm\s+install\b'''
+flag = "--loglevel=error"
+skip_if = ["--loglevel", "--silent", "-s"]
+
+[[rewrite]]
+name = "yarn_install"
+pattern = '''(?:^|[\s'"])yarn\s+(?:install|add)\b'''
+flag = "--silent"
+skip_if = ["--silent", "-s"]
+
+[[rewrite]]
+name = "make_build"
+pattern = '''(?:^|[\s'"])make\b(?!\s+test)(?!\s+check)'''
+flag = "-s"
+skip_if = ["-s", "--silent"]
+
+[[rewrite]]
+name = "cmake_build"
+pattern = '''cmake\s+--build\b'''
+flag = "-- -j$(nproc) 2>&1 | tail -50"
+skip_if = ["tail", "head", "-j"]

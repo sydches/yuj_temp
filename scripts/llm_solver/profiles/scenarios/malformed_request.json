@@ -1,0 +1,25 @@
+{
+  "id": "malformed_request",
+  "description": "Error condition: ambiguous tool use prompt — what does a confused response look like?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant."},
+    {"role": "user", "content": "Use the frobnicate tool to process the data."}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "notes": "Model should either refuse (text response about unknown tool) or attempt bash. Captures error handling behavior."
+  }
+}

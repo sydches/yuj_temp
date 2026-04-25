@@ -1,0 +1,135 @@
+{
+  "id": "gauntlet_pattern_wire",
+  "description": "Gauntlet: multi-file feature wiring — model must add a CLI flag following existing patterns and wire it through to the function call.",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. When adding features, follow existing code patterns and conventions in the codebase."},
+    {"role": "user", "content": "Add a `--verbose` flag to the CLI. When set, it should change the log_level to 'DEBUG' in the config and pass `detailed=True` to the formatter's `format_output` function."},
+    {"role": "assistant", "content": "I'll check the files that need changes.", "tool_calls": [
+      {
+        "id": "call_0_0",
+        "type": "function",
+        "function": {"name": "read", "arguments": "{\"path\": \"src/cli.py\"}"}
+      },
+      {
+        "id": "call_0_1",
+        "type": "function",
+        "function": {"name": "read", "arguments": "{\"path\": \"src/config.py\"}"}
+      },
+      {
+        "id": "call_0_2",
+        "type": "function",
+        "function": {"name": "read", "arguments": "{\"path\": \"src/formatter.py\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_0_0", "content": "1: \"\"\"Command-line interface.\"\"\"\n2: import argparse\n3: import sys\n4: \n5: from src.config import AppConfig\n6: from src.formatter import format_output\n7: from src.core import run_pipeline\n8: \n9: \n10: def build_parser() -> argparse.ArgumentParser:\n11:     parser = argparse.ArgumentParser(\n12:         description='Data processing pipeline CLI'\n13:     )\n14:     parser.add_argument(\n15:         'input_file',\n16:         help='Path to input data file'\n17:     )\n18:     parser.add_argument(\n19:         '--output', '-o',\n20:         default='output.json',\n21:         help='Path to output file (default: output.json)'\n22:     )\n23:     parser.add_argument(\n24:         '--format', '-f',\n25:         choices=['json', 'csv', 'table'],\n26:         default='json',\n27:         help='Output format (default: json)'\n28:     )\n29:     return parser\n30: \n31: \n32: def main(argv=None):\n33:     parser = build_parser()\n34:     args = parser.parse_args(argv)\n35:     \n36:     config = AppConfig()\n37:     result = run_pipeline(args.input_file, config)\n38:     \n39:     formatted = format_output(result, fmt=args.format)\n40:     \n41:     with open(args.output, 'w') as f:\n42:         f.write(formatted)\n43:     \n44:     print(f\"Output written to {args.output}\")\n45:     return 0\n46: \n47: \n48: if __name__ == '__main__':\n49:     sys.exit(main())"},
+    {"role": "tool", "tool_call_id": "call_0_1", "content": "1: \"\"\"Application configuration.\"\"\"\n2: import logging\n3: import os\n4: \n5: \n6: class AppConfig:\n7:     \"\"\"Central configuration object.\"\"\"\n8:     \n9:     def __init__(self):\n10:         self.log_level = os.getenv('LOG_LEVEL', 'INFO')\n11:         self.max_retries = int(os.getenv('MAX_RETRIES', '3'))\n12:         self.timeout = int(os.getenv('TIMEOUT', '30'))\n13:         self.debug = False\n14:     \n15:     def setup_logging(self):\n16:         logging.basicConfig(\n17:             level=getattr(logging, self.log_level),\n18:             format='%(asctime)s %(levelname)s %(name)s: %(message)s'\n19:         )"},
+    {"role": "tool", "tool_call_id": "call_0_2", "content": "1: \"\"\"Output formatting module.\"\"\"\n2: import json\n3: import csv\n4: import io\n5: \n6: \n7: def format_output(data, fmt='json', detailed=False):\n8:     \"\"\"Format pipeline output.\n9:     \n10:     Args:\n11:         data: Pipeline result dict\n12:         fmt: Output format ('json', 'csv', 'table')\n13:         detailed: If True, include metadata and timing info\n14:     \"\"\"\n15:     if detailed:\n16:         data = {**data, 'metadata': data.get('_meta', {}), 'timing': data.get('_timing', {})}\n17:     else:\n18:         data = {k: v for k, v in data.items() if not k.startswith('_')}\n19:     \n20:     if fmt == 'json':\n21:         return json.dumps(data, indent=2)\n22:     elif fmt == 'csv':\n23:         output = io.StringIO()\n24:         writer = csv.DictWriter(output, fieldnames=data.keys())\n25:         writer.writeheader()\n26:         writer.writerow(data)\n27:         return output.getvalue()\n28:     elif fmt == 'table':\n29:         lines = [f\"{'Key':<20} {'Value'}\"]\n30:         lines.append('-' * 40)\n31:         for k, v in data.items():\n32:             lines.append(f\"{k:<20} {v}\")\n33:         return '\\n'.join(lines)\n34:     else:\n35:         raise ValueError(f\"Unknown format: {fmt}\")"}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "write",
+        "description": "Create or overwrite a file.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "content": {"type": "string"}
+          },
+          "required": ["path", "content"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "edit",
+        "description": "Replace an exact string in a file (first occurrence).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "old_str": {"type": "string"},
+            "new_str": {"type": "string"}
+          },
+          "required": ["path", "old_str", "new_str"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "glob",
+        "description": "Find files matching a glob pattern.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "grep",
+        "description": "Search file contents with regex; returns matching lines.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"},
+            "glob": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "min_tool_calls": 2,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "tool_names_include": ["edit"],
+    "args_contain": [
+      {"tool_name": "edit", "key": "path", "substring": "cli.py"},
+      {"tool_name": "edit", "key": "new_str", "substring": "--verbose"},
+      {"tool_name": "edit", "key": "new_str", "substring": "detailed"}
+    ],
+    "args_exclude": [
+      {"tool_name": "edit", "key": "path", "substring": "formatter.py"}
+    ],
+    "notes": "Minimum 2 edits to cli.py: (1) add '--verbose' to build_parser() matching existing add_argument pattern, (2) wire args.verbose to format_output(detailed=args.verbose) in main(). formatter.py already supports detailed= so no edit needed there. Optionally a 3rd edit to set config.log_level='DEBUG'."
+  }
+}

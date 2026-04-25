@@ -1,0 +1,43 @@
+{
+  "id": "duplicate_tool_loop",
+  "description": "Pre-stuffed repeated identical tool result — does the model act on the result or re-call the same tool again?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Use tools to complete tasks. Act on tool results and make progress."},
+    {"role": "user", "content": "What version of pydantic is installed? Once you know, tell me."},
+    {"role": "assistant", "content": null, "tool_calls": [
+      {
+        "id": "call_0_0",
+        "type": "function",
+        "function": {"name": "bash", "arguments": "{\"cmd\": \"pip show pydantic | grep Version\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_0_0", "content": "Version: 2.5.3"},
+    {"role": "assistant", "content": null, "tool_calls": [
+      {
+        "id": "call_1_0",
+        "type": "function",
+        "function": {"name": "bash", "arguments": "{\"cmd\": \"pip show pydantic | grep Version\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_1_0", "content": "Version: 2.5.3"}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "finish_reason": "stop",
+    "has_content": true,
+    "notes": "Optimal: text response stating pydantic==2.5.3. Failure mode: model emits a third identical bash call (probing loop), indicating it is not absorbing tool results. Observed in GLM-4.7-Flash IQ2_M (10+ consecutive identical calls). Check: finish_reason=='stop' and content mentions 2.5.3."
+  }
+}

@@ -1,0 +1,157 @@
+[profile]
+format_version = 1
+canonical_version = "openai-v1"
+name = "qwen3.6-35b-a3b"
+family = "qwen3.6"
+quant = "UD-Q4_K_XL"
+inherits = "_base"
+
+[model]
+context_size = 262144
+chat_template = "chatml"
+supports_tool_calls = true
+supports_system_role = true
+
+[tokens]
+method = "chars_div_4"
+tokenizer = ""
+
+[capacity]
+preamble = ""
+max_tools = 7
+simplify_schemas = false
+
+[normalize]
+rules = ["rules.toml"]
+modules = []
+
+[denormalize]
+rules = ["rules.toml"]
+modules = ["behavioral.py"]
+
+# Behavioral suffix injected after the Commandments header in the
+# system prompt (operationalization of the four commandments — the
+# "do this, not that" layer). Task-agnostic. Loaded by behavioral.py
+# via load_profile_behavioral() so the text lives in data, not code.
+#
+# tool_call_style governs how the profile formats function calls on
+# the wire: "openai_json" is the llama-server/Qwen default and is
+# what this profile ships; "qwen_xml" and "gemini_native" are future
+# options for per-model tool-call format experiments (Qwen Code-
+# style <tool_call> blocks, etc.).
+#
+# reminder_placement controls where the behavioral suffix lands:
+# "system" appends to the system message (current behavior);
+# "user_tail" would append to the last user message (Aider pattern).
+[behavioral]
+tool_call_style = "openai_json"
+reminder_placement = "system"
+# Baseline suffix — matches qwen3.5-9b exactly so Q4/Q5 comparator tests
+# isolate the quant effect. The sharpened rule-5 + rule-10 variant was
+# falsified (see doe_log 20260421_060000_qwen36_transcript_diagnosis.md);
+# reverting here means this profile serves as the original nzF2P-6 DOE
+# Cell A baseline matching Q35 character-for-character on behavioral text.
+suffix = """
+
+## Operational rules
+
+Constraints, not advice.
+
+1. **Test suite is the only verdict.** Run it. `python -c`, imports, `echo` are not verification.
+2. **Test file = interface contract.** Read it once, early.
+3. **Never modify existing test files.**
+4. **Last action must be a test run.** No fresh verdict = not done.
+5. **First action: mutate or test.** Pretest verdict is in context. Do not list/read/grep first.
+6. **Iterate, not rewrite.** Read the error. Make a targeted edit. Do not start over.
+7. **No re-runs without intervening mutation.** Flag variations don't count.
+8. **Sessions resume.** Continue from where you stopped. Do not restart.
+9. **Batch independent reads.** You may emit multiple read/glob/grep calls in one turn; the harness runs them concurrently and returns all results together. One call per turn wastes context when you already know the set of files to inspect."""
+
+[server]
+model_path = "~/models/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
+ctx_size = 32768
+flash_attn = true
+cache_type_k = "q8_0"
+cache_type_v = "q8_0"
+jinja = true
+reasoning_mode = "think"
+reasoning_disable_flag = "--reasoning-budget 0"
+# Hybrid GPU+CPU split for 4080M (12 GB VRAM) + 14900HX (64 GB DDR5).
+# --n-cpu-moe 32 offloads first 32 layers' routed experts to CPU;
+# attention + shared expert + router + embed + last 8 layers' experts
+# stay on GPU. P-core pinning via cpu-mask 0x00FF + cpu-strict 1.
+# See docs/local_model_observations.md for the full budget analysis.
+extra_flags = "--n-cpu-moe 32 --cpu-mask 0x00FF --cpu-strict 1 -b 2048 -ub 1024 --mmap"
+
+# Qwen-official sampling presets (server-side defaults, not sent by harness).
+# Source: Qwen/Qwen3-8B model card generation_config.json + community testing.
+# These are passed as llama-server CLI flags at launch time.
+[sampling]
+temperature = 0.7           # Qwen non-thinking preset (default 0.8 too loose)
+top_k = 20                  # model-specific — half llama-server default of 40
+top_p = 0.8                 # Qwen non-thinking preset (default 0.95 too loose)
+min_p = 0.0                 # Qwen official leaves at 0; community suggests 0.05 for creative
+presence_penalty = 0.0      # 0.0 for coding; 1.5 for general/creative (anti-repetition)
+n_predict = 32768           # per-completion generation cap
+
+[provenance]
+generated = "2026-04-21"
+llama_server = "--reasoning-budget 0 --n-cpu-moe 32"
+model_file = "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
+model_sha256 = ""
+process_version = "1"
+self_profiled = false
+scenario_results = "unvalidated — profile cloned from qwen3.5-9b pending spot-test on 4080M+14900HX hybrid"
+
+[metadata.server]
+_raw_models = '{"models":[{"name":"Qwen3.5-9B-Q4_K_M.gguf","model":"Qwen3.5-9B-Q4_K_M.gguf","modified_at":"","size":"","digest":"","type":"model","description":"","tags":[""],"capabilities":["completion"],"parameters":"","details":{"parent_model":"","format":"gguf","family":"","families":[""],"parameter_size":"...'
+_raw_props = '{"default_generation_settings":{"params":{"seed":4294967295,"temperature":0.800000011920929,"dynatemp_range":0.0,"dynatemp_exponent":1.0,"top_k":40,"top_p":0.949999988079071,"min_p":0.05000000074505806,"top_n_sigma":-1.0,"xtc_probability":0.0,"xtc_threshold":0.10000000149011612,"typical_p":1.0,"r...'
+_raw_slots = '[{"id":0,"n_ctx":8192,"speculative":false,"is_processing":false,"id_task":4776,"params":{"seed":4294967295,"temperature":0.800000011920929,"dynatemp_range":0.0,"dynatemp_exponent":1.0,"top_k":40,"top_p":0.949999988079071,"min_p":0.05000000074505806,"top_n_sigma":-1.0,"xtc_probability":0.0,"xtc_th...'
+model_id = "Qwen3.5-9B-Q4_K_M.gguf"
+n_ctx = 8192
+n_ctx_train = 262144
+
+[metadata]
+hf_model_id = "Qwen/Qwen3.5-9B"
+
+[metadata.hf_config]
+architectures = '["Qwen3_5ForConditionalGeneration"]'
+attention_bias = false
+attention_dropout = 0.0
+attn_output_gate = true
+dtype = "bfloat16"
+eos_token_id = 248044
+full_attention_interval = 4
+head_dim = 256
+hidden_act = "silu"
+hidden_size = 4096
+image_token_id = 248056
+initializer_range = 0.02
+intermediate_size = 12288
+layer_types = '["linear_attention","linear_attention","linear_attention","full_attention","linear_attention","linear_attention","linear_attention","full_attention","linear_attention","linear_attention","linear_attention","full_attention","linear_attention","linear_attention","linear_attention","full_attention",...'
+linear_conv_kernel_dim = 4
+linear_key_head_dim = 128
+linear_num_key_heads = 16
+linear_num_value_heads = 32
+linear_value_head_dim = 128
+mamba_ssm_dtype = "float32"
+max_position_embeddings = 262144
+mlp_only_layers = '[]'
+model_type = "qwen3_5_text"
+mtp_num_hidden_layers = 1
+mtp_use_dedicated_embeddings = false
+num_attention_heads = 16
+num_hidden_layers = 32
+num_key_value_heads = 4
+rms_norm_eps = 1e-06
+rope_parameters = '{"mrope_interleaved":true,"mrope_section":[11,11,10],"rope_type":"default","rope_theta":10000000,"partial_rotary_factor":0.25}'
+text_config = '{"attention_bias":false,"attention_dropout":0.0,"attn_output_gate":true,"dtype":"bfloat16","eos_token_id":248044,"full_attention_interval":4,"head_dim":256,"hidden_act":"silu","hidden_size":4096,"initializer_range":0.02,"intermediate_size":12288,"layer_types":["linear_attention","linear_attention...'
+tie_word_embeddings = false
+transformers_version = "4.57.0.dev0"
+use_cache = true
+video_token_id = 248057
+vision_config = '{"deepstack_visual_indexes":[],"depth":27,"hidden_act":"gelu_pytorch_tanh","hidden_size":1152,"in_channels":3,"initializer_range":0.02,"intermediate_size":4304,"model_type":"qwen3_5","num_heads":16,"num_position_embeddings":2304,"out_hidden_size":4096,"patch_size":16,"spatial_merge_size":2,"tempo...'
+vision_end_token_id = 248054
+vision_start_token_id = 248053
+vocab_size = 248320
+

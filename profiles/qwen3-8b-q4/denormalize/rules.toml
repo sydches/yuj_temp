@@ -1,0 +1,5 @@
+# Qwen3-8B-Q4 denormalize rules.
+# Qwen3 handles system role natively — no folding needed.
+
+[system_prompt]
+strategy = "native"

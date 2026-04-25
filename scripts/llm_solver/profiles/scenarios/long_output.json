@@ -1,0 +1,14 @@
+{
+  "id": "long_output",
+  "description": "Edge case: request that elicits a long response — does the model handle max_tokens/length correctly?",
+  "messages": [
+    {"role": "system", "content": "You are a helpful assistant."},
+    {"role": "user", "content": "Write a detailed explanation of how merge sort works, including pseudocode and complexity analysis. Be thorough."}
+  ],
+  "tools": [],
+  "expect": {
+    "has_content": true,
+    "finish_reason_in": ["stop", "length"],
+    "notes": "Observe whether finish_reason is 'length' when truncated or 'stop' when complete"
+  }
+}

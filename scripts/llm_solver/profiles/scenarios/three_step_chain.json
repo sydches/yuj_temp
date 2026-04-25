@@ -1,0 +1,86 @@
+{
+  "id": "three_step_chain",
+  "description": "Pre-stuffed 3-round chain (glob -> read -> ?): does the model still emit tool_calls after 3 rounds of context?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Use tools to investigate and fix code."},
+    {"role": "user", "content": "Find the config file, check if DEBUG is set to False, and if so change it to True."},
+    {"role": "assistant", "content": null, "tool_calls": [
+      {
+        "id": "call_0_0",
+        "type": "function",
+        "function": {"name": "glob", "arguments": "{\"pattern\": \"**/config*.py\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_0_0", "content": "src/config.py"},
+    {"role": "assistant", "content": null, "tool_calls": [
+      {
+        "id": "call_1_0",
+        "type": "function",
+        "function": {"name": "read", "arguments": "{\"path\": \"src/config.py\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_1_0", "content": "1: # Application configuration\n2: import os\n3: \n4: DEBUG = False\n5: LOG_LEVEL = 'INFO'\n6: DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///app.db')\n7: MAX_RETRIES = 3"},
+    {"role": "assistant", "content": "I found src/config.py and DEBUG is set to False. I'll change it to True.", "tool_calls": [
+      {
+        "id": "call_2_0",
+        "type": "function",
+        "function": {"name": "edit", "arguments": "{\"path\": \"src/config.py\", \"old_str\": \"DEBUG = False\", \"new_str\": \"DEBUG = True\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_2_0", "content": "OK"}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "glob",
+        "description": "Find files matching a glob pattern.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "edit",
+        "description": "Replace an exact string in a file (first occurrence).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "old_str": {"type": "string"},
+            "new_str": {"type": "string"}
+          },
+          "required": ["path", "old_str", "new_str"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_content": true,
+    "finish_reason": "stop",
+    "notes": "Model should confirm the edit succeeded. Key test: does the model still produce coherent output after 3 pre-stuffed tool rounds? Does it summarize using information from all 3 rounds?"
+  }
+}

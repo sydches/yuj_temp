@@ -1,0 +1,33 @@
+# Task format descriptor: JavaScript/TypeScript jest/mocha/vitest
+#
+# Matches the common JS test runners, either as standalone binaries or
+# via npm/yarn/pnpm script invocations.
+
+name = "jest"
+description = "jest / mocha / vitest / npm test invocations"
+
+verification_patterns = [
+    '''(?:^|[\s/'"])(?:jest|mocha|vitest)\b''',
+    '''(?:^|[\s/'"])(?:npm|yarn|pnpm)\s+(?:run\s+)?test\b''',
+    '''(?:^|[\s/'"])npx\s+(?:jest|mocha|vitest)\b''',
+]
+
+[output_control]
+failure_only_flag = ""
+passed_marker = "✓"
+failed_marker = "✕"
+
+# Structured output parsing for jest/mocha/vitest. Jest's default reporter
+# emits "Tests: N failed, M passed, X total"; per-test lines prefixed by
+# ✓ or ✕ on the default reporter, "PASS"/"FAIL" on CI-style reporters.
+[output_parser.summary]
+passed = '''(\d+)\s+passed'''
+failed = '''(\d+)\s+failed'''
+skipped = '''(\d+)\s+skipped'''
+
+[output_parser.per_test]
+# Covers both the default (✓/✕) and CI-style (PASS/FAIL) reporters. Verdict
+# emitted as-is (✓/✕/PASS/FAIL); see cargo.toml for the same normalization
+# caveat — consumers that need canonical PASSED/FAILED strings await a
+# normalization map in parse_structured.
+regex = '''^\s*(?P<verdict>✓|✕|PASS|FAIL)\s+(?P<test_id>\S[^\(]*?)(?:\s+\(\d+\s*ms\))?$'''

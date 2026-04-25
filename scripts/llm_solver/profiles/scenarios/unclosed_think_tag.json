@@ -1,0 +1,57 @@
+{
+  "id": "unclosed_think_tag",
+  "description": "Pre-stuffed assistant turn with unclosed <think> tag — can the model still respond correctly to the next user message?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Use tools to complete tasks."},
+    {"role": "user", "content": "Read the file config.py and then tell me the value of DEBUG."},
+    {"role": "assistant", "content": "<think>\nThe user wants me to read config.py. I should use the read tool.\n", "tool_calls": [
+      {
+        "id": "call_0_0",
+        "type": "function",
+        "function": {"name": "read", "arguments": "{\"path\": \"config.py\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_0_0", "content": "1: DEBUG = False\n2: LOG_LEVEL = 'INFO'"},
+    {"role": "user", "content": "Now change DEBUG to True."}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "edit",
+        "description": "Replace an exact string in a file (first occurrence).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "old_str": {"type": "string"},
+            "new_str": {"type": "string"}
+          },
+          "required": ["path", "old_str", "new_str"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "min_tool_calls": 1,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "Target quirk (section 4.4 failure mode 1): when an assistant turn contains an unclosed <think> tag (no </think>) followed by a tool call, models that process thinking tokens may treat all subsequent history — including the tool result — as part of an ongoing reasoning block. Failure mode: model produces confused output, repeats the read call already done, ignores the tool result content, or generates a response that doesn't reference 'DEBUG = False' from the tool result. The pre-stuffed unclosed <think> in the assistant content is the trigger. Correct behavior: model ignores or handles the malformed tag and emits edit(path='config.py', old_str='DEBUG = False', new_str='DEBUG = True')."
+  }
+}

@@ -1,0 +1,1 @@
+Signal task completion. Session ends immediately and code changes are captured as the final patch. Only accepted after a code change and a passing validation command (exit code 0, substantial output).

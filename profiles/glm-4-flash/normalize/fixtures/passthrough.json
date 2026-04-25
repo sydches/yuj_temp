@@ -1,0 +1,35 @@
+{
+  "description": "Clean response passes through normalize unchanged",
+  "cases": [
+    {
+      "input": {
+        "content": "I'll help you change the MAX_RETRIES value from 3 to 5 in the app/config.py file. Let me first read the file to see its current content.",
+        "tool_calls": [
+          {
+            "id": "73UVQMlunLz8fH161HEAx32DkMbV8aZo",
+            "type": "function",
+            "function": {
+              "name": "read",
+              "arguments": "{\"path\":\"app/config.py\"}"
+            }
+          }
+        ],
+        "finish_reason": "tool_calls"
+      },
+      "expected": {
+        "content": "I'll help you change the MAX_RETRIES value from 3 to 5 in the app/config.py file. Let me first read the file to see its current content.",
+        "tool_calls": [
+          {
+            "id": "73UVQMlunLz8fH161HEAx32DkMbV8aZo",
+            "type": "function",
+            "function": {
+              "name": "read",
+              "arguments": "{\"path\":\"app/config.py\"}"
+            }
+          }
+        ],
+        "finish_reason": "tool_calls"
+      }
+    }
+  ]
+}

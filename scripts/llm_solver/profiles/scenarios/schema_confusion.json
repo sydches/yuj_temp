@@ -1,0 +1,62 @@
+{
+  "id": "schema_confusion",
+  "description": "Similar tools available (grep/glob/read) — does the model pick the right one for content search?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Choose the most appropriate tool for each task."},
+    {"role": "user", "content": "Which file contains the function 'parse_config'? Find it."}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "glob",
+        "description": "Find files matching a glob pattern.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "grep",
+        "description": "Search file contents with regex; returns matching lines.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"},
+            "glob": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "Optimal: grep(pattern='parse_config') or grep(pattern='def parse_config'). Wrong: glob (finds files by name pattern, not content). Watch: does model confuse 'find a file' with 'search file contents'?"
+  }
+}

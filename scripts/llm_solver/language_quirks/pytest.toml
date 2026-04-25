@@ -1,0 +1,51 @@
+# Task format descriptor: pytest-family Python testing
+#
+# Matches: pytest, py.test, unittest invocations, either directly or via
+# `python[N] -m pytest/unittest`. Does NOT match bare `cat test_foo.py`
+# or file reads — only actual runner invocations.
+#
+# Analysis tools that accept --task-format load this file and use its
+# patterns as the definition of "verification command" for the run.
+
+name = "pytest"
+description = "pytest / py.test / unittest / python -m pytest invocations"
+
+# Regex patterns matched against bash args_summary with re.IGNORECASE | re.VERBOSE.
+# A match means "this bash call is a verification gate for the task."
+verification_patterns = [
+    '''(?:^|[\s/'"])(?:pytest|py\.test|unittest)\b''',
+    '''(?:^|[\s/'"])python[0-9]?\s+(?:-m\s+)?(?:pytest|unittest)\b''',
+]
+
+# Flags appended to test commands by the harness to reduce output volume.
+# Only appended if not already present in the command.
+[output_control]
+failure_only_flag = "--tb=short -q --no-header"
+passed_marker = "PASSED"       # substring in passing-test lines (stripped from output)
+failed_marker = "FAILED"       # substring in failing-test lines (never stripped)
+
+# Structured parsing of pytest output. Consumed by bash_quirks.parse_structured()
+# and by analysis/run_summary.py for per-subtest regression detection. When
+# bash_transforms_structured_output_enabled is set, the harness REPLACES the
+# raw result shown to the model with a compact digest rendered from the
+# fields below; when the sink mechanism is on (bash_transforms_sink_threshold_chars),
+# raw output is also written to .tool_output/<session>_<turn>.log so the
+# model can read the full output on demand via the read tool.
+[output_parser]
+# One regex per summary field — order-agnostic (pytest emits
+# "2 failed, 8 passed" or "8 passed, 2 failed" depending on config).
+# Each field's first capture group is the integer count.
+[output_parser.summary]
+passed = '''(\d+)\s+passed'''
+failed = '''(\d+)\s+failed'''
+errors = '''(\d+)\s+error(?:s|ed)?'''
+skipped = '''(\d+)\s+skipped'''
+
+# Per-test verdict lines in pytest -v / --tb=short / -rA outputs:
+#   "PASSED tests/test_x.py::test_y"
+#   "FAILED tests/test_x.py::test_y - AssertionError: ..."
+#   "ERROR tests/test_x.py::test_y"
+[output_parser.per_test]
+regex = '''
+    ^(?P<verdict>PASSED|FAILED|ERROR)\s+(?P<test_id>\S+)
+'''

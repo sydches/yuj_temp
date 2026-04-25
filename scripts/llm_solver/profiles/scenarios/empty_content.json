@@ -1,0 +1,27 @@
+{
+  "id": "empty_content",
+  "description": "Edge case: tool call with no content — does the model emit null/empty content when making tool calls?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. When using tools, do not include any text — just make the tool call."},
+    {"role": "user", "content": "Run pwd"}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "Check whether content is null, empty string, or contains thinking/preamble"
+  }
+}

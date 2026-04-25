@@ -1,0 +1,43 @@
+{
+  "id": "text_with_tool_calls",
+  "description": "Mixed response — does the model emit both content text AND tool_calls in the same response?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Always briefly explain your reasoning before using a tool."},
+    {"role": "user", "content": "Check what Python version is installed."}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "Key observation: is content null/empty or does it contain explanatory text? This varies significantly across models."
+  }
+}

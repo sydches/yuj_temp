@@ -1,0 +1,31 @@
+# Task format descriptor: Go
+#
+# Matches `go test`, `go build`, `go vet` — any go subcommand that
+# produces a pass/fail verdict on task correctness.
+
+name = "go"
+description = "Go test/build/vet invocations"
+
+verification_patterns = [
+    '''(?:^|[\s/'"])go\s+(?:test|build|vet)\b''',
+]
+
+[output_control]
+failure_only_flag = "-v"
+passed_marker = "--- PASS"
+failed_marker = "--- FAIL"
+
+# Structured output parsing for go test. Go's default output has no
+# "N passed, M failed" summary line — only per-test `--- PASS: TestX`
+# or `--- FAIL: TestX` markers, plus a terminal `PASS` / `FAIL` and
+# `ok <pkg> <time>` / `FAIL <pkg> <reason>`. Summary counts are
+# derived implicitly by the parser from per_test matches when the
+# summary block is empty; consumers see the counts via
+# len(parsed["tests"]).
+
+[output_parser.per_test]
+# --- PASS: TestFoo/subtest (0.01s)
+# --- FAIL: TestBar (0.02s)
+# Verdict captured as PASS/FAIL; matches the pytest-style canonical set
+# for FAILED via the render_digest checks that accept PASS-prefix/FAIL-prefix.
+regex = '''^---\s+(?P<verdict>PASS|FAIL)(?:\s*:\s*)(?P<test_id>\S+)'''

@@ -1,0 +1,49 @@
+{
+  "models": [
+    {
+      "name": "zai-org_GLM-4.7-Flash-IQ2_M.gguf",
+      "model": "zai-org_GLM-4.7-Flash-IQ2_M.gguf",
+      "modified_at": "",
+      "size": "",
+      "digest": "",
+      "type": "model",
+      "description": "",
+      "tags": [
+        ""
+      ],
+      "capabilities": [
+        "completion"
+      ],
+      "parameters": "",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "",
+        "families": [
+          ""
+        ],
+        "parameter_size": "",
+        "quantization_level": ""
+      }
+    }
+  ],
+  "object": "list",
+  "data": [
+    {
+      "id": "zai-org_GLM-4.7-Flash-IQ2_M.gguf",
+      "aliases": [],
+      "tags": [],
+      "object": "model",
+      "created": 1775407613,
+      "owned_by": "llamacpp",
+      "meta": {
+        "vocab_type": 2,
+        "n_vocab": 154880,
+        "n_ctx_train": 202752,
+        "n_embd": 2048,
+        "n_params": 29943393920,
+        "size": 9842889216
+      }
+    }
+  ]
+}

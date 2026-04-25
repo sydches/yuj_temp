@@ -1,0 +1,1 @@
+Search file contents with regex; returns matching lines. Wraps results in <search_result total=".." shown=".." page=".." next_page=".." ...>. Use page=N to paginate.

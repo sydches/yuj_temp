@@ -1,0 +1,80 @@
+{
+  "id": "repetition_loop",
+  "description": "Pre-stuffed repeated tool calls — after seeing the same command run 3 times with results, does the model break out or repeat again?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Use tools to investigate and fix the project. Make progress on each turn — do not repeat actions you have already taken."},
+    {"role": "user", "content": "Set up the project dependencies and verify pydantic is installed."},
+    {"role": "assistant", "content": null, "tool_calls": [
+      {
+        "id": "call_0_0",
+        "type": "function",
+        "function": {"name": "bash", "arguments": "{\"cmd\": \"pip show pydantic\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_0_0", "content": "Name: pydantic\nVersion: 2.5.0\nSummary: Data validation using Python type hints\nLocation: /usr/lib/python3/dist-packages\nRequires: annotated-types, pydantic-core, typing-extensions"},
+    {"role": "assistant", "content": null, "tool_calls": [
+      {
+        "id": "call_1_0",
+        "type": "function",
+        "function": {"name": "bash", "arguments": "{\"cmd\": \"pip show pydantic\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_1_0", "content": "Name: pydantic\nVersion: 2.5.0\nSummary: Data validation using Python type hints\nLocation: /usr/lib/python3/dist-packages\nRequires: annotated-types, pydantic-core, typing-extensions"},
+    {"role": "assistant", "content": null, "tool_calls": [
+      {
+        "id": "call_2_0",
+        "type": "function",
+        "function": {"name": "bash", "arguments": "{\"cmd\": \"pip show pydantic\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_2_0", "content": "Name: pydantic\nVersion: 2.5.0\nSummary: Data validation using Python type hints\nLocation: /usr/lib/python3/dist-packages\nRequires: annotated-types, pydantic-core, typing-extensions"}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "write",
+        "description": "Create or overwrite a file.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "content": {"type": "string"}
+          },
+          "required": ["path", "content"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "notes": "After 3 identical pip show pydantic calls all returning the same result, a well-behaved model should conclude pydantic is installed and either (a) move on to the next task, (b) confirm success with a text response, or (c) take a different action. Failure mode: model emits a 4th identical bash(cmd='pip show pydantic') call, demonstrating it cannot synthesize tool results into updated state — the repetition loop behavior observed in GLM-4.7-Flash IQ2_M across 10+ consecutive turns."
+  }
+}

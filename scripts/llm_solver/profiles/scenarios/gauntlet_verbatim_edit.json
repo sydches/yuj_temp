@@ -1,0 +1,125 @@
+{
+  "id": "gauntlet_verbatim_edit",
+  "description": "Gauntlet: verbatim context recall — model must emit 3 edit calls with exact old_str from a file read 1 turn ago.",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Use tools to complete tasks precisely. When editing, use exact strings from the file contents you've already read."},
+    {"role": "user", "content": "Rename the function `process_data` to `transform_data` everywhere in the codebase."},
+    {"role": "assistant", "content": "Found `process_data` in src/utils.py, src/api.py, and tests/test_utils.py. I've already renamed the definition and log message in utils.py and updated the test imports. Reading the last file for the remaining call sites.", "tool_calls": [
+      {
+        "id": "call_0_0",
+        "type": "function",
+        "function": {"name": "read", "arguments": "{\"path\": \"src/api.py\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_0_0", "content": "1: from flask import Flask, request, jsonify\n2: from src.config import load_config\n3: from src.utils import process_data\n4: \n5: app = Flask(__name__)\n6: app_config = load_config()\n7: \n8: \n9: @app.route('/process', methods=['POST'])\n10: def handle_process():\n11:     \"\"\"Process a single data payload.\"\"\"\n12:     if not request.is_json:\n13:         return jsonify({'error': 'Expected JSON'}), 400\n14:     \n15:     try:\n16:         payload = request.get_json()\n17:         if 'data' not in payload:\n18:             return jsonify({'error': 'Missing data field'}), 422\n19:         result = process_data(request.body, config=app_config)\n20:         return jsonify({'status': 'ok', 'result': result})\n21:     except TypeError as e:\n22:         return jsonify({'error': str(e)}), 400\n23: \n24: \n25: @app.route('/batch', methods=['POST'])\n26: def handle_batch():\n27:     \"\"\"Process a batch of items.\"\"\"\n28:     payload = request.get_json()\n29:     items = payload.get('items', [])\n30:     if not items:\n31:         return jsonify({'error': 'Empty batch'}), 422\n32:     \n33:     try:\n34:         batch_results = [process_data(item) for item in items]\n35:         return jsonify({\n36:             'status': 'ok',\n37:             'count': len(batch_results),\n38:             'results': batch_results\n39:         })\n40:     except Exception as e:\n41:         return jsonify({'error': str(e)}), 500\n42: \n43: \n44: if __name__ == '__main__':\n45:     app.run(debug=True, port=8080)"}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "write",
+        "description": "Create or overwrite a file.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "content": {"type": "string"}
+          },
+          "required": ["path", "content"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "edit",
+        "description": "Replace an exact string in a file (first occurrence).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "old_str": {"type": "string"},
+            "new_str": {"type": "string"}
+          },
+          "required": ["path", "old_str", "new_str"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "glob",
+        "description": "Find files matching a glob pattern.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "grep",
+        "description": "Search file contents with regex; returns matching lines.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"},
+            "glob": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "min_tool_calls": 3,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "tool_names_include": ["edit"],
+    "args_contain": [
+      {"tool_name": "edit", "key": "path", "substring": "api.py"},
+      {"tool_name": "edit", "key": "old_str", "substring": "from src.utils import process_data"},
+      {"tool_name": "edit", "key": "old_str", "substring": "process_data(request.body"},
+      {"tool_name": "edit", "key": "old_str", "substring": "process_data(item)"},
+      {"tool_name": "edit", "key": "new_str", "substring": "transform_data"}
+    ],
+    "args_exclude": [
+      {"tool_name": "edit", "key": "path", "substring": "utils.py"}
+    ],
+    "notes": "3 edits to src/api.py: import (line 3), single call (line 19), list-comp call (line 34). old_str must be verbatim from the read. Failure modes: (a) re-edits utils.py, (b) truncates old_str, (c) misses the import, (d) uses write instead of edit."
+  }
+}

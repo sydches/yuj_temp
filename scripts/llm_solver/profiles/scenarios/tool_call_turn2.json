@@ -1,0 +1,54 @@
+{
+  "id": "tool_call_turn2",
+  "description": "Tool availability after a complete tool-call/result exchange — does the model still emit tool calls on the second request?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Use tools to complete tasks."},
+    {"role": "user", "content": "List the files in the current directory."},
+    {"role": "assistant", "content": null, "tool_calls": [
+      {
+        "id": "call_0_0",
+        "type": "function",
+        "function": {"name": "bash", "arguments": "{\"cmd\": \"ls\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_0_0", "content": "main.py\ntest.py\nREADME.md"},
+    {"role": "assistant", "content": "The directory contains: main.py, test.py, README.md."},
+    {"role": "user", "content": "Now read the file main.py."}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "min_tool_calls": 1,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "Target quirk: Mistral-family models lose tool schema awareness after turn 1 because tool definitions are anchored to the last user message in the template — after a complete exchange, the new last user message lacks the schema. Failure mode: model responds with plain text ('I would read the file...') instead of a tool call. The pre-stuffed complete exchange is the trigger condition."
+  }
+}

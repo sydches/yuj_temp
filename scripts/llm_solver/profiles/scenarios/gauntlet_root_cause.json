@@ -1,0 +1,138 @@
+{
+  "id": "gauntlet_root_cause",
+  "description": "Gauntlet: root-cause diagnosis — model must fix the implementation (wrong key name), not the test or the model.",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Investigate bugs systematically: read the traceback, find the source, understand the root cause, then fix it. Do not modify tests to match broken code."},
+    {"role": "user", "content": "The test `test_process_batch` is failing with 'KeyError: processed_at'. Find the bug and fix it."},
+    {"role": "assistant", "content": null, "tool_calls": [
+      {
+        "id": "call_0_0",
+        "type": "function",
+        "function": {"name": "bash", "arguments": "{\"cmd\": \"python3 -m pytest tests/test_batch.py::test_process_batch -x 2>&1\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_0_0", "content": "============================= FAILURES =============================\n_________________ test_process_batch _________________\ntests/test_batch.py:18: in test_process_batch\n    assert result['processed_at'] is not None\nE   KeyError: 'processed_at'\n============================= short test summary info =============================\nFAILED tests/test_batch.py::test_process_batch - KeyError: 'processed_at'\n========================= 1 failed in 0.34s ========================="},
+    {"role": "assistant", "content": "The test expects `processed_at` but the key doesn't exist. Let me read both the test and the implementation.", "tool_calls": [
+      {
+        "id": "call_1_0",
+        "type": "function",
+        "function": {"name": "read", "arguments": "{\"path\": \"tests/test_batch.py\"}"}
+      },
+      {
+        "id": "call_1_1",
+        "type": "function",
+        "function": {"name": "read", "arguments": "{\"path\": \"src/batch.py\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_1_0", "content": "1: import pytest\n2: from datetime import datetime\n3: from src.batch import process_batch\n4: \n5: \n6: def test_process_batch_empty():\n7:     results = process_batch([])\n8:     assert results == []\n9: \n10: \n11: def test_process_batch():\n12:     items = [\n13:         {'name': 'alpha', 'value': 10},\n14:         {'name': 'beta', 'value': 20},\n15:         {'name': 'gamma', 'value': 30},\n16:     ]\n17:     results = process_batch(items)\n18:     assert len(results) == 3\n19:     for result in results:\n20:         assert result['processed_at'] is not None\n21:         assert isinstance(result['processed_at'], str)\n22:         assert result['status'] == 'completed'"},
+    {"role": "tool", "tool_call_id": "call_1_1", "content": "1: \"\"\"Batch processing module.\"\"\"\n2: import logging\n3: from datetime import datetime\n4: from typing import Any\n5: \n6: from src.models import BatchItem, BatchResult\n7: \n8: logger = logging.getLogger(__name__)\n9: \n10: \n11: def process_batch(items: list[dict]) -> list[dict]:\n12:     \"\"\"Process a batch of items and return results.\"\"\"\n13:     if not items:\n14:         return []\n15:     \n16:     logger.info(\"Processing batch of %d items...\", len(items))\n17:     results = []\n18:     \n19:     for item in items:\n20:         try:\n21:             if item is None:\n22:                 raise ValueError(\"Item cannot be None\")\n23:             \n24:             validated = BatchItem(\n25:                 name=item['name'],\n26:                 value=item['value']\n27:             )\n28:             \n29:             output = {\n30:                 'name': validated.name,\n31:                 'value': validated.value * 2,\n32:                 'status': 'completed',\n33:                 'process_timestamp': datetime.now().isoformat(),\n34:             }\n35:             results.append(output)\n36:         \n37:         except Exception as e:\n38:             results.append({\n39:                 'status': 'error',\n40:                 'error': str(e),\n41:                 'process_timestamp': datetime.now().isoformat(),\n42:             })\n43:     \n44:     elapsed = results[-1]['process_timestamp'] if results else 'n/a'\n45:     logger.info(\"Batch completed\")\n46:     return results"}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "write",
+        "description": "Create or overwrite a file.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "content": {"type": "string"}
+          },
+          "required": ["path", "content"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "edit",
+        "description": "Replace an exact string in a file (first occurrence).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "old_str": {"type": "string"},
+            "new_str": {"type": "string"}
+          },
+          "required": ["path", "old_str", "new_str"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "glob",
+        "description": "Find files matching a glob pattern.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "grep",
+        "description": "Search file contents with regex; returns matching lines.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"},
+            "glob": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "min_tool_calls": 2,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "tool_names_include": ["edit"],
+    "args_contain": [
+      {"tool_name": "edit", "key": "path", "substring": "src/batch.py"},
+      {"tool_name": "edit", "key": "old_str", "substring": "process_timestamp"},
+      {"tool_name": "edit", "key": "new_str", "substring": "processed_at"}
+    ],
+    "args_exclude": [
+      {"tool_name": "edit", "key": "path", "substring": "test_batch"},
+      {"tool_name": "edit", "key": "path", "substring": "models.py"}
+    ],
+    "notes": "2 edits: both 'process_timestamp' in src/batch.py (lines 33, 41) -> 'processed_at'. Test and model agree on 'processed_at'; implementation is wrong. Failure modes: (a) edits test or model instead of source, (b) only fixes line 33 and misses line 41, (c) re-reads batch.py unnecessarily."
+  }
+}

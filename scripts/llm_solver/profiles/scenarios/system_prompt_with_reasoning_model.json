@@ -1,0 +1,43 @@
+{
+  "id": "system_prompt_with_reasoning_model",
+  "description": "System prompt present — does reasoning-optimized model (R1 distills) still follow tool-use instructions or ignore/degrade?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. When the user asks you to read a file, call the read tool. Do not explain what you are doing. Do not describe tools. Just call the tool."},
+    {"role": "user", "content": "Read the file src/main.py"}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "bash",
+        "description": "Run a shell command; returns stdout+stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {"cmd": {"type": "string"}},
+          "required": ["cmd"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "Targets DeepSeek-R1 distill family (7B/8B/14B/32B/70B) and full R1 (671B) which document warns against system prompts. Observe: (1) does the model still emit a tool call? (2) is tool_call well-formed? (3) does content contain verbose reasoning preamble despite system instruction to be silent? (4) does model emit text instead of tool call? Failure mode: model falls back to prose description of what it 'would' do, or emits a malformed tool call, or appends long CoT before the call."
+  }
+}

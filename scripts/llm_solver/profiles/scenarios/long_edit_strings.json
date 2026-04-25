@@ -1,0 +1,56 @@
+{
+  "id": "long_edit_strings",
+  "description": "Edit with long multi-line old_str — does the model truncate or mangle the argument?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Use the edit tool to make targeted changes."},
+    {"role": "user", "content": "Replace the entire `process_data` function with a simpler version that just returns the input unchanged."},
+    {"role": "assistant", "content": null, "tool_calls": [
+      {
+        "id": "call_0_0",
+        "type": "function",
+        "function": {"name": "read", "arguments": "{\"path\": \"utils.py\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_0_0", "content": "1: import json\n2: import logging\n3: \n4: logger = logging.getLogger(__name__)\n5: \n6: def process_data(raw_input, config=None):\n7:     \"\"\"Process raw input data through the pipeline.\"\"\"\n8:     if config is None:\n9:         config = {}\n10:     \n11:     # Step 1: validate\n12:     if not isinstance(raw_input, dict):\n13:         raise TypeError(f\"Expected dict, got {type(raw_input)}\")\n14:     \n15:     # Step 2: transform\n16:     result = {}\n17:     for key, value in raw_input.items():\n18:         if key.startswith('_'):\n19:             continue\n20:         result[key] = str(value).strip()\n21:     \n22:     # Step 3: enrich\n23:     result['processed'] = True\n24:     result['version'] = config.get('version', '1.0')\n25:     \n26:     logger.info(\"Processed %d fields\", len(result))\n27:     return result\n28: \n29: def helper():\n30:     return True"}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "edit",
+        "description": "Replace an exact string in a file (first occurrence).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "old_str": {"type": "string"},
+            "new_str": {"type": "string"}
+          },
+          "required": ["path", "old_str", "new_str"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "min_tool_calls": 1,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "old_str should be the verbatim 22-line function body. Watch for: truncation, whitespace normalization, missing lines, JSON escape errors with embedded newlines."
+  }
+}

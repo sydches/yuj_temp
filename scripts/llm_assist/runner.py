@@ -1,0 +1,472 @@
+"""Assistant-mode session runner built on the shared harness engine."""
+from __future__ import annotations
+
+import json
+import tempfile
+from dataclasses import dataclass, replace
+from pathlib import Path
+from urllib.parse import urlparse, urlunparse
+
+from ..llm_solver.config import (
+    PROJECT_ROOT,
+    get_server_base_url,
+    load_config,
+    require_runtime_mode,
+)
+from ..llm_solver.harness import TaskSpec, solve_task
+from ..llm_solver.harness.context_strategies import resolve_context_class
+from ..llm_solver.harness.loop import _load_trace_events
+from ..llm_solver.models import resolve_model
+from ..llm_solver.server import LlamaClient, load_profile
+from .store import SessionRecord, SessionStore
+
+
+_EMPTY_STATE = {
+    "state": {"current_attempt": "", "last_verify": "", "next_action": ""},
+    "trace": [],
+    "gates": [],
+    "evidence": [],
+    "inference": [],
+}
+_APPROVAL_REQUEST_FILE = "approval_request.json"
+
+
+def create_session(
+    store: SessionStore,
+    *,
+    cwd: Path,
+    prompt_text: str,
+    prompt_source: str,
+    model: str | None,
+    config_paths: list[Path],
+    system_prompt_path: Path | None,
+    context_mode: str,
+) -> SessionRecord:
+    resolved_model, _served = resolve_served_model(config_paths, requested_model=model)
+    record = store.create_session(
+        cwd=cwd,
+        model=resolved_model,
+        prompt_text=prompt_text,
+        prompt_source=prompt_source,
+        context_mode=context_mode,
+        system_prompt_path=system_prompt_path,
+        config_paths=config_paths,
+    )
+    _seed_session_artifacts(record)
+    return record
+
+
+def prepare_smoke_repo(root: Path | None = None) -> Path:
+    """Create a minimal throwaway repo for assistant smoke runs."""
+    if root is None:
+        root = Path(tempfile.mkdtemp(prefix="assist-smoke-"))
+    root = Path(root).resolve()
+    (root / "tests").mkdir(parents=True, exist_ok=True)
+    (root / "calc.py").write_text(
+        "def add(a, b):\n"
+        "    return a - b\n"
+    )
+    (root / "tests" / "test_calc.py").write_text(
+        "from calc import add\n\n\n"
+        "def test_add():\n"
+        "    assert add(2, 3) == 5\n"
+    )
+    return root
+
+
+def run_session(store: SessionStore, record: SessionRecord, *, resume: bool) -> tuple[bool, str | None]:
+    """Run exactly one harness outer session for an assistant record."""
+    artifact_dir = record.artifact_path
+    store.update_session(record.session_id, status="running", last_finish_reason=None)
+
+    config_paths = [Path(p) for p in record.config_paths]
+    overrides = {
+        "runtime_mode": "assistant",
+        "max_sessions": 1,
+        "model": record.model,
+    }
+    cfg = load_config(user_config=config_paths, overrides=overrides)
+    require_runtime_mode(cfg, expected="assistant", caller="scripts.llm_assist")
+
+    profile = _load_profile(cfg)
+    client = LlamaClient(cfg, profile=profile)
+    cfg = _apply_effective_context(cfg, client)
+    client.cfg = cfg
+
+    prompt_text = record.prompt_text
+    if resume:
+        approval = load_approval_request(record.artifact_path)
+        if approval is not None and approval.get("status") == "approved":
+            reason = approval.get("reason") or "approval granted"
+            args_summary = approval.get("args_summary") or approval.get("cmd") or ""
+            prompt_text = (
+                prompt_text.rstrip()
+                + "\n\n"
+                + f"Operator note: the previously blocked action is now approved ({reason}). "
+                + f"If it is still the right next step, re-issue: {args_summary}"
+            )
+
+    success = solve_task(
+        Path(record.cwd),
+        cfg,
+        client,
+        system_prompt_file=Path(record.system_prompt_path) if record.system_prompt_path else None,
+        context_class=resolve_context_class(record.context_mode),
+        task_spec=TaskSpec(prompt_text=prompt_text),
+        artifacts_dir=artifact_dir,
+        resume_from_artifacts=resume,
+    )
+    finish_reason = last_finish_reason(artifact_dir)
+    store.update_session(
+        record.session_id,
+        status=_status_from_result(success, finish_reason),
+        last_finish_reason=finish_reason,
+    )
+    return success, finish_reason
+
+
+def last_finish_reason(artifact_dir: Path) -> str | None:
+    """Return the latest session_end finish_reason from a session bundle."""
+    events = _load_trace_events(Path(artifact_dir) / ".trace.jsonl")
+    for ev in reversed(events):
+        if ev.get("event") == "session_end":
+            reason = ev.get("finish_reason")
+            return str(reason) if reason is not None else None
+    return None
+
+
+@dataclass(frozen=True)
+class LiveState:
+    """Shell-owned live status inferred from artifacts.
+
+    ``status`` is empty when artifacts are insufficient; the caller falls
+    back to the SQLite row. ``finish_reason`` is non-None only when a
+    ``session_end`` has been observed with no later ``session_start``.
+    """
+
+    status: str
+    finish_reason: str | None
+    session_number: int
+
+
+def derive_live_state(artifact_dir: Path) -> LiveState:
+    """Infer live status from ``.trace.jsonl`` + ``approval_request.json``.
+
+    Precedence (matches docs/cli_agent_spec.md §3):
+      1. Pending approval request → ``approval_pending``.
+      2. Last lifecycle event is ``session_end`` → map finish_reason to
+         ``completed`` / ``paused`` / ``error``.
+      3. Last lifecycle event is ``session_start`` → ``running``.
+      4. Nothing observed → empty status; caller uses the SQLite row.
+    """
+    artifact_dir = Path(artifact_dir)
+    events = _load_trace_events(artifact_dir / ".trace.jsonl")
+    approval = load_approval_request(artifact_dir)
+
+    last_lifecycle: dict | None = None
+    for ev in events:
+        if ev.get("event") in {"session_start", "session_end"}:
+            last_lifecycle = ev
+    session_number = (
+        int(last_lifecycle.get("session_number", 0) or 0)
+        if last_lifecycle is not None
+        else 0
+    )
+
+    if approval is not None and approval.get("status") == "pending":
+        return LiveState(
+            status="approval_pending",
+            finish_reason=None,
+            session_number=session_number,
+        )
+
+    if last_lifecycle is None:
+        return LiveState(status="", finish_reason=None, session_number=0)
+
+    if last_lifecycle.get("event") == "session_start":
+        return LiveState(status="running", finish_reason=None, session_number=session_number)
+
+    finish_reason_raw = last_lifecycle.get("finish_reason")
+    finish_reason = str(finish_reason_raw) if finish_reason_raw is not None else None
+    return LiveState(
+        status=_status_from_finish_reason(finish_reason or ""),
+        finish_reason=finish_reason,
+        session_number=session_number,
+    )
+
+
+def _status_from_finish_reason(finish_reason: str) -> str:
+    if finish_reason in {"stop", "model_done"}:
+        return "completed"
+    if finish_reason == "error":
+        return "error"
+    return "paused"
+
+
+def session_turn_count(artifact_dir: Path) -> int:
+    """Return the latest session_end turns count, if any."""
+    events = _load_trace_events(Path(artifact_dir) / ".trace.jsonl")
+    for ev in reversed(events):
+        if ev.get("event") == "session_end":
+            return int(ev.get("turns", 0) or 0)
+    return 0
+
+
+def session_trace_tail(artifact_dir: Path, *, limit: int = 10) -> list[str]:
+    """Return a formatted tail of trace events for CLI inspection."""
+    events = _load_trace_events(Path(artifact_dir) / ".trace.jsonl")
+    if limit <= 0:
+        return []
+    tail = events[-limit:]
+    return [_format_trace_event(ev) for ev in tail]
+
+
+def session_turn_tail(artifact_dir: Path, *, limit: int = 5) -> list[str]:
+    """Return a formatted tail of tool-call turns for CLI inspection."""
+    events = _load_trace_events(Path(artifact_dir) / ".trace.jsonl")
+    if limit <= 0:
+        return []
+
+    turns: list[dict] = []
+    current: dict | None = None
+    current_key: tuple[int | None, int | None] | None = None
+
+    for ev in events:
+        if ev.get("event") != "tool_call":
+            continue
+        key = (ev.get("session_number"), ev.get("turn_number"))
+        if key != current_key:
+            current = {
+                "session": ev.get("session_number"),
+                "turn": ev.get("turn_number"),
+                "reasoning": "",
+                "tools": [],
+            }
+            turns.append(current)
+            current_key = key
+        assert current is not None
+        reasoning = str(ev.get("reasoning") or "").strip()
+        if reasoning and not current["reasoning"]:
+            current["reasoning"] = reasoning
+        current["tools"].append(
+            {
+                "tool_name": str(ev.get("tool_name") or "?"),
+                "args_summary": str(ev.get("args_summary") or ""),
+                "result_summary": str(ev.get("result_summary") or ""),
+                "gate_blocked": bool(ev.get("gate_blocked", False)),
+            }
+        )
+
+    rendered: list[str] = []
+    for turn in turns[-limit:]:
+        rendered.extend(_format_turn_block(turn))
+    return rendered
+
+
+def _seed_session_artifacts(record: SessionRecord) -> None:
+    artifact_dir = record.artifact_path
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir / ".solver").mkdir(parents=True, exist_ok=True)
+    (artifact_dir / "prompt.txt").write_text(record.prompt_text)
+    (artifact_dir / ".solver" / "state.json").write_text(
+        json.dumps(_EMPTY_STATE, indent=2) + "\n"
+    )
+    meta = {
+        "session_id": record.session_id,
+        "cwd": record.cwd,
+        "model": record.model,
+        "prompt_source": record.prompt_source,
+        "context_mode": record.context_mode,
+        "system_prompt_path": record.system_prompt_path,
+        "config_paths": record.config_paths,
+    }
+    (artifact_dir / "session.json").write_text(json.dumps(meta, indent=2) + "\n")
+
+
+def _format_trace_event(event: dict) -> str:
+    et = str(event.get("event") or "?")
+    if et == "session_start":
+        session = event.get("session_number")
+        return f"session_start session={session}"
+    if et == "tool_call":
+        turn = event.get("turn_number")
+        tool = event.get("tool_name") or "?"
+        args = _truncate_text(str(event.get("args_summary") or ""), 100)
+        result = _truncate_text(str(event.get("result_summary") or ""), 120)
+        return f"tool_call turn={turn} {tool}({args}) => {result}"
+    if et == "session_end":
+        session = event.get("session_number")
+        finish_reason = event.get("finish_reason")
+        turns = event.get("turns")
+        return f"session_end session={session} finish_reason={finish_reason} turns={turns}"
+    if et == "adaptive_phase_switch":
+        turn = event.get("turn_number")
+        phase = event.get("phase")
+        return f"adaptive_phase_switch turn={turn} phase={phase}"
+    if et == "approval_request":
+        turn = event.get("turn_number")
+        tool = event.get("tool_name") or "?"
+        reason = event.get("reason") or ""
+        args = _truncate_text(str(event.get("args_summary") or ""), 100)
+        return f"approval_request turn={turn} {tool}({args}) reason={reason}"
+    if et == "regression":
+        n_regressed = event.get("n_regressed")
+        return f"regression n_regressed={n_regressed}"
+    summary = ", ".join(
+        f"{key}={value}"
+        for key, value in event.items()
+        if key != "event"
+    )
+    return f"{et} {summary}".strip()
+
+
+def _format_turn_block(turn: dict) -> list[str]:
+    session = turn.get("session")
+    turn_number = turn.get("turn")
+    header = f"turn {turn_number}"
+    if session is not None:
+        header += f" (session {session})"
+    lines = [header]
+
+    reasoning = _truncate_text(str(turn.get("reasoning") or ""), 160)
+    if reasoning:
+        lines.append(f"  reasoning: {reasoning}")
+
+    for tool in turn.get("tools", []):
+        action = f"{tool['tool_name']}({tool['args_summary']})"
+        result = _truncate_text(tool["result_summary"], 160)
+        if tool["gate_blocked"]:
+            lines.append(f"  blocked: {action}")
+        else:
+            lines.append(f"  tool: {action}")
+        if result:
+            lines.append(f"    result: {result}")
+    return lines
+
+
+def _truncate_text(text: str, max_chars: int) -> str:
+    text = " ".join(text.split())
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 3] + "..."
+
+
+def approval_request_path(artifact_dir: Path) -> Path:
+    return Path(artifact_dir) / _APPROVAL_REQUEST_FILE
+
+
+def load_approval_request(artifact_dir: Path) -> dict | None:
+    path = approval_request_path(artifact_dir)
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def save_approval_request(artifact_dir: Path, payload: dict) -> None:
+    artifact_dir = Path(artifact_dir)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    approval_request_path(artifact_dir).write_text(json.dumps(payload, indent=2) + "\n")
+
+
+def _default_model(config_paths: list[Path]) -> str:
+    cfg = load_config(
+        user_config=config_paths,
+        overrides={"runtime_mode": "assistant", "max_sessions": 1},
+    )
+    return cfg.model
+
+
+def resolve_served_model(
+    config_paths: list[Path],
+    requested_model: str | None = None,
+) -> tuple[str, list[str]]:
+    """Resolve an exact served model id against ``/v1/models``.
+
+    Alias/default is reconciled against the live server list: if the
+    alias-resolved id is served verbatim it wins, otherwise the first
+    served id is used. Raises RuntimeError if the server returns no
+    models. Shared by ``run`` and ``smoke``.
+    """
+    base_model = resolve_model(requested_model) if requested_model else _default_model(config_paths)
+    cfg = load_config(
+        user_config=config_paths,
+        overrides={"runtime_mode": "assistant", "max_sessions": 1, "model": base_model},
+    )
+    profile = _load_profile(cfg)
+    client = LlamaClient(cfg, profile=profile)
+    served = client.health_check()
+    if not served:
+        raise RuntimeError("server returned no models from /v1/models")
+    if base_model in served:
+        return base_model, served
+    return served[0], served
+
+
+def resolve_smoke_model(config_paths: list[Path], requested_model: str | None = None) -> tuple[str, list[str]]:
+    """Backwards-compatible alias for ``resolve_served_model``."""
+    return resolve_served_model(config_paths, requested_model=requested_model)
+
+
+def _load_profile(cfg):
+    profiles_dir = PROJECT_ROOT / "profiles"
+    if not profiles_dir.is_dir():
+        return None
+    try:
+        return load_profile(cfg.model, profiles_dir)
+    except FileNotFoundError:
+        return None
+
+
+def _apply_effective_context(cfg, client):
+    server_ctx = client.query_server_context()
+    if server_ctx:
+        effective_ctx = min(cfg.context_size, server_ctx) if cfg.context_size > 0 else server_ctx
+        if effective_ctx != cfg.context_size:
+            cfg = replace(cfg, context_size=effective_ctx)
+
+    token_budget = int(cfg.context_size * cfg.context_fill_ratio)
+    derived_recent = int(token_budget * 0.45 * 4)
+    derived_output = int(token_budget * 0.40 * 4)
+    if derived_recent != cfg.recent_tool_results_chars or derived_output != cfg.max_output_chars:
+        cfg = replace(
+            cfg,
+            recent_tool_results_chars=derived_recent,
+            max_output_chars=derived_output,
+        )
+    return cfg
+
+
+def _status_from_result(success: bool, finish_reason: str | None) -> str:
+    if success:
+        return "completed"
+    if finish_reason == "error":
+        return "error"
+    return "paused"
+
+
+def override_port(port: int) -> dict[str, str]:
+    """Shared port override helper for CLI callers."""
+    parsed = urlparse(get_server_base_url())
+    netloc = f"{parsed.hostname or 'localhost'}:{port}"
+    return {"base_url": urlunparse(parsed._replace(netloc=netloc))}
+
+
+__all__ = [
+    "approval_request_path",
+    "create_session",
+    "derive_live_state",
+    "last_finish_reason",
+    "LiveState",
+    "load_approval_request",
+    "prepare_smoke_repo",
+    "run_session",
+    "resolve_served_model",
+    "resolve_smoke_model",
+    "save_approval_request",
+    "session_trace_tail",
+    "session_turn_tail",
+    "session_turn_count",
+]

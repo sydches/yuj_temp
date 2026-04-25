@@ -1,0 +1,79 @@
+{
+  "id": "multi_turn_tool_availability",
+  "description": "After 2 pre-stuffed tool rounds, does the model still emit a tool_call for the next required step, or revert to text-mode?",
+  "messages": [
+    {"role": "system", "content": "You are a coding assistant. Use tools to complete tasks."},
+    {"role": "user", "content": "Find the settings file, read it to get the current log level, then update the log level from 'WARNING' to 'DEBUG'."},
+    {"role": "assistant", "content": null, "tool_calls": [
+      {
+        "id": "call_0_0",
+        "type": "function",
+        "function": {"name": "glob", "arguments": "{\"pattern\": \"**/settings*.py\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_0_0", "content": "app/settings.py"},
+    {"role": "assistant", "content": null, "tool_calls": [
+      {
+        "id": "call_1_0",
+        "type": "function",
+        "function": {"name": "read", "arguments": "{\"path\": \"app/settings.py\"}"}
+      }
+    ]},
+    {"role": "tool", "tool_call_id": "call_1_0", "content": "1: # Application settings\n2: DATABASE_URL = 'sqlite:///app.db'\n3: LOG_LEVEL = 'WARNING'\n4: MAX_WORKERS = 4\n5: SECRET_KEY = 'changeme'"}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "glob",
+        "description": "Find files matching a glob pattern. Does NOT search file contents — only matches filename patterns.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"}
+          },
+          "required": ["pattern"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file; returns contents with line numbers.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+            "limit": {"type": "integer"}
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "edit",
+        "description": "Replace an exact string in a file (first occurrence).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "old_str": {"type": "string"},
+            "new_str": {"type": "string"}
+          },
+          "required": ["path", "old_str", "new_str"]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "has_tool_calls": true,
+    "min_tool_calls": 1,
+    "finish_reason_in": ["tool_calls", "tool"],
+    "notes": "Model must emit edit(path='app/settings.py', old_str=\"LOG_LEVEL = 'WARNING'\", new_str=\"LOG_LEVEL = 'DEBUG'\") as a tool_call. Failure: finish_reason='stop' with a text explanation instead of a tool call — indicates the model reverted to text-mode after receiving 2 tool results. This is the most common agentic failure mode in single-turn-finetuned models."
+  }
+}

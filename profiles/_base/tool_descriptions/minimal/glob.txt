@@ -1,0 +1,1 @@
+Find files matching a glob pattern. Wraps results in <search_result total=".." shown=".." page=".." next_page=".." ...>. Use page=N to paginate.
