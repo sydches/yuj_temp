@@ -70,9 +70,9 @@ Why this stack:
 | Artifact and replay contract | `.trace.jsonl` is append-only ground truth; `.solver/state.json` is a projection; `state_replay.py`, `state_verify.py`, `run_summary.py`, and `.savings.jsonl` make runs inspectable. | Present |
 | Extension seams | Profiles, normalize/denormalize rules, bash quirks, language quirks, injections, context strategies, and the tool registry are separate extension surfaces. | Present |
 | Knob/control plane | `config.toml`, overlays, `configs/knobs.toml`, and `scripts/knob.py` define a queryable tuning surface with presets, tags, blast radius, and mode metadata. | Present but not exposed through a user-facing entrypoint |
-| Mode boundary | The harness needs an explicit runtime split between `measurement` and `assistant`, so shell features cannot silently leak into scientific runs. | Documented, not yet the full runtime contract |
+| Mode boundary | The harness has an explicit runtime split between `measurement` and `assistant`, so shell features cannot silently leak into scientific runs. `scripts.llm_solver` requires measurement mode; `scripts.llm_assist` requires assistant mode. | Implemented; covered by boundary tests |
 | Execution substrate | Current runtime is a single local sandboxed engine. Multi-backend execution is not part of the current core identity. | Present by design |
-| Assistant shell boundary | No built-in cabin yet: no first-class chat entrypoint, approval UX, session browser, or end-user control plane. This is absence by design, not evidence of a weak engine. | Missing, intentionally outside the loop today |
+| Assistant shell boundary | The user-facing cabin lives outside the harness core under `scripts/llm_assist/` and `yuj`. It reuses the same engine and artifacts without forking the loop. | Implemented as a separate wrapper |
 
 ## Core Gaps That Still Belong In The Harness
 

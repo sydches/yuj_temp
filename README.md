@@ -21,6 +21,8 @@ Start with these docs:
 Current status:
 
 - internal paths preserved intentionally
+- harness core is isolated under `scripts/llm_solver/`
+- CLI wrapper is isolated under `scripts/llm_assist/`, with `yuj` as the thin operator entrypoint
 - benchmark shell intentionally left behind
 - assistant shell is usable now under `scripts/llm_assist/`
 - session inspection, approval/suspend, and smoke bootstrap are implemented
@@ -52,6 +54,25 @@ yuj resume
 checkout directly.
 
 `code` is an alias of `run` for the common coding-agent entry path.
+
+## Harness vs CLI Boundary
+
+The harness and CLI wrapper are intentionally separate:
+
+- harness core: `scripts/llm_solver/**`, `profiles/**`, `configs/knobs.toml`
+- CLI wrapper: `scripts/llm_assist/**`, `scripts/yuj.py`, `yuj`
+- assistant artifacts: `.llm_assist/**`, or `HARNESS_ASSIST_HOME` when set
+
+The wrapper imports the harness and calls `solve_task`. The harness must not
+import the wrapper or depend on assistant sessions, approvals, or `yuj` UX.
+This lets newer harness code be refreshed under `scripts/llm_solver/` without
+overwriting the CLI shell.
+
+Boundary checks live in `tests/test_runtime_mode.py`:
+
+```bash
+python3 -m pytest tests/test_runtime_mode.py
+```
 
 Install as a real CLI entrypoint:
 

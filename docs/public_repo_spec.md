@@ -254,6 +254,8 @@ the copied runtime actually needs it.
 - No copied file imports `tasks`
 - No copied file imports `experiments`
 - No copied file mentions `FeatureBench` outside historical docs
+- `scripts/llm_solver/**` does not import `scripts.llm_assist` or `scripts.yuj`
+- assistant-shell code stays under `scripts/llm_assist/**`, `scripts/yuj.py`, and `yuj`
 
 ### Runtime
 
